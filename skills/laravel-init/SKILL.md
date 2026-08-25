@@ -118,7 +118,17 @@ claude mcp add -s local -t stdio laravel-boost php artisan boost:mcp
 
 For any other agent, say which one is in use and point at Boost's own registration details (`command: php`, `args: artisan boost:mcp`) rather than guessing at its config format.
 
-## Step 7 — Report a summary
+## Step 7 — Check whether mattpocock's skills need setup
+
+`setup-matt-pocock-skills` configures the per-repo state the rest of mattpocock's engineering skills assume exists: issue tracker, triage label vocabulary, domain doc layout. It has `disable-model-invocation: true`, so it never runs on its own — only an explicit `/setup-matt-pocock-skills` invocation runs it. Check whether that's already happened, using the same signal file the skill itself writes as its completion marker:
+
+```bash
+test -f docs/agents/issue-tracker.md && echo configured || echo not-configured
+```
+
+If `not-configured`, tell the user to run `/setup-matt-pocock-skills` before relying on the other engineering skills. Don't run it yourself — it's interactive and asks the user questions step by step — and don't skip mentioning it just because it's optional.
+
+## Step 8 — Report a summary
 
 End with a short, concrete list of what actually happened, e.g.:
 
@@ -128,6 +138,7 @@ End with a short, concrete list of what actually happened, e.g.:
 ✅ mattpocock/skills: already present → left alone
 ✅ npx skills update: 5 project skills refreshed (incl. laravel-init itself — re-run in a new session to use the updated version)
 ✅ Boost MCP: responds over stdio, connected in Claude Code
+⚠️ mattpocock/skills: not yet configured — run /setup-matt-pocock-skills before relying on them
 ```
 
 Don't just say "done" — call out anything that needs the user's attention, like a Boost interactive prompt that needs an answer, or a skill repo that failed to resolve.

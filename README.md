@@ -15,7 +15,7 @@ Ask your agent: **"laravel init this project"**.
 ## Update a project
 
 ```bash
-npx skills update -p -y
+npx skills update laravel-init -p -y
 ```
 
-Or just run `laravel-init` again — its last step does this. Restart the agent session afterwards.
+Then, in a fresh agent session, ask it to run `laravel-init` — that pulls in everything else (skills, Boost, the MCP check).
