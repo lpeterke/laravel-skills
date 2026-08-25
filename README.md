@@ -10,7 +10,7 @@ npx skills add lpeterke/laravel-skills --all -p
 
 ## Use
 
-Ask your agent: **"init this project"**.
+Ask your agent: **"laravel init this project"**.
 
 ## Update a project
 
@@ -18,4 +18,4 @@ Ask your agent: **"init this project"**.
 npx skills update -p -y
 ```
 
-Or just run `init` again — its last step does this. Restart the agent session afterwards.
+Or just run `laravel-init` again — its last step does this. Restart the agent session afterwards.

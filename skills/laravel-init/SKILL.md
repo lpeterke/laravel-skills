@@ -1,9 +1,9 @@
 ---
-name: init
-description: Bootstrap or refresh the AI tooling for a Laravel project in one pass — installs Laravel Boost if it's missing or updates it if it's already there, and installs or updates mattpocock/skills locally in the project. Use this whenever starting a new Laravel project, opening an existing Laravel project where Boost or mattpocock/skills look missing or outdated, or when the user says things like "init this project", "set up AI tooling", "bootstrap boost", or "update my skills". Always run this instead of manually piecing together composer/boost/npx-skills commands one at a time.
+name: laravel-init
+description: Bootstrap or refresh the AI tooling for a Laravel project in one pass — installs Laravel Boost if it's missing or updates it if it's already there, and installs or updates mattpocock/skills locally in the project. Use this whenever starting a new Laravel project, opening an existing Laravel project where Boost or mattpocock/skills look missing or outdated, or when the user says things like "laravel init", "init this project", "set up AI tooling", "bootstrap boost", or "update my skills". Always run this instead of manually piecing together composer/boost/npx-skills commands one at a time.
 ---
 
-# Init
+# Laravel Init
 
 One skill that gets a Laravel project's AI tooling into a known-good state — whether the project is brand new or years old, and whether this is the first run or the fiftieth.
 
@@ -63,7 +63,12 @@ This refetches every project-scoped skill from its source — mattpocock's, this
 
 Two things to know, and to tell the user when relevant:
 
-- **This skill updates itself here, one run late.** The `init` instructions being followed right now are the copy already installed in the project. If `lpeterke/laravel-skills` changed upstream, this command pulls the new version, but *this* run still finishes on the old one. Say so in the summary, and suggest re-running `init` in a fresh session if the update actually moved `init`.
+- **This skill updates itself here, one run late.** The `laravel-init` instructions being followed right now are the copy already installed in the project. If `lpeterke/laravel-skills` changed upstream, this command pulls the new version, but *this* run still finishes on the old one. Say so in the summary, and suggest re-running `laravel-init` in a fresh session if the update actually moved it.
+- **A `deleted upstream` warning for `init` is expected.** This skill used to be called `init`. Projects installed before the rename still carry that stale copy, and `update` reports it as deleted upstream but leaves it in place under `-y`. Clean it up:
+  ```bash
+  npx skills remove init -p -y
+  ```
+  Only do this when the stale skill is this one — check `skills-lock.json` and confirm the `init` entry's `source` is `lpeterke/laravel-skills` before removing anything. If there's no `init` entry, skip silently; most projects won't have one.
 - **Locally-installed skills are skipped.** `npx skills update` only refetches skills whose `skills-lock.json` entry has `"sourceType": "github"`. Anything installed from a local path (`npx skills add /path/to/repo`) is silently ignored — it prints `No project skills to update.` rather than an error. To refresh those, re-run `npx skills add <path> --all -p`.
 
 ## Step 5 — Report a summary
@@ -73,7 +78,7 @@ End with a short, concrete list of what actually happened, e.g.:
 ```
 ✅ Boost: was missing → installed fresh, wired up for Claude Code
 ✅ mattpocock/skills: already present → left alone
-✅ npx skills update: 5 project skills refreshed (incl. init itself — re-run in a new session to use the updated version)
+✅ npx skills update: 5 project skills refreshed (incl. laravel-init itself — re-run in a new session to use the updated version)
 ```
 
 Don't just say "done" — call out anything that needs the user's attention, like a Boost interactive prompt that needs an answer, or a skill repo that failed to resolve.
