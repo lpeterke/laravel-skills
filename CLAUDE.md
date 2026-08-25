@@ -19,7 +19,7 @@ Skills here are distributed via the [skills CLI](https://github.com/vercel-labs/
 
 ```
 laravel-skills/
-├── README.md              — human-facing install instructions, keep terse
+├── README.md              — commands only: install, use, update, test. No prose — explanation belongs here
 ├── CLAUDE.md               — this file
 └── skills/
     └── <skill-name>/
@@ -35,7 +35,17 @@ Every skill lives in its own folder under `skills/`. One `SKILL.md` per folder, 
 2. **Write a pushy, specific description.** Skills under-trigger by default. The frontmatter `description` should name concrete trigger phrases and contexts, not just describe capability in the abstract. Compare: "Helps with Livewire components" (weak) vs. "Use whenever the user is building, reviewing, or debugging a Livewire component, mentions wire:model, wire:click, or asks about Livewire lifecycle hooks" (better).
 3. **Keep `SKILL.md` under ~500 lines.** If it's growing past that, split detail into a `references/` file and point to it from the main body rather than inlining everything.
 4. **Make it idempotent wherever it touches project state.** Every skill that runs commands (like `init` does) should check current state first and only change what's actually needed — never assume a clean slate, never assume it hasn't run before.
-5. **Test it in a real Laravel project before committing.** Symlink or `npx skills add lpeterke/laravel-skills --skill <name> -p` into a scratch project and actually run it once.
+5. **Test it in a real Laravel project before committing.** `npx skills add /Users/lars/code/laravel-skills --skill <name> -p` into a scratch project and actually run it once. See *Distribution mechanics* below for why that local install needs re-running after every edit.
+
+## Distribution mechanics
+
+How a change here reaches a project — worth knowing precisely, because several of these behaviours are silent.
+
+- **`npx skills update` refetches from GitHub, not from the working copy.** Committing isn't enough; unpushed edits are invisible to every consuming project. Push, then update there.
+- **`skills-lock.json` is written automatically on every `add`.** It is not a user-chosen pin — it records each skill's `source`, `sourceType`, and a `computedHash`, and `update` rewrites it in place. Never treat its presence as a reason to stop and ask before updating. (`npx skills experimental_install` rebuilds a project from it.)
+- **`update` silently skips local-source skills.** Only entries with `"sourceType": "github"` are refetched. A skill installed from a path (`npx skills add /Users/lars/code/laravel-skills --all -p`) is recorded as `"sourceType": "local"` and ignored — the CLI prints `No project skills to update.` and exits 0, not an error. To pick up further local edits, re-run the `add`. Once the change is pushed, re-`add` from `lpeterke/laravel-skills` so the project is back on the GitHub source and future updates work.
+- **`add` copies, it doesn't symlink the source.** The copy lands in the project's `.agents/skills/<name>/`; the per-agent directories (`.claude/skills/` etc.) are symlinks into that. So editing this repo never live-updates an installed project.
+- **`init` updates itself one run late.** The agent follows the copy of `init` already installed in the project. Its own update step pulls the new version, but the run in progress finishes on the old instructions. Any change to `init` therefore takes effect on the next invocation, in a fresh session.
 
 ## Updating the `init` skill specifically
 
