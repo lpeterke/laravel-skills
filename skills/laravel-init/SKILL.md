@@ -26,7 +26,22 @@ grep -q '"laravel/boost"' composer.json 2>/dev/null && BOOST_PRESENT=1 || BOOST_
   ```
   `boost:install` is interactive — it asks which agents/IDEs to wire up (Claude Code, Cursor, etc.). Let the user answer live.
 
-- **`BOOST_PRESENT=1` (already installed):**
+- **`BOOST_PRESENT=1` (already installed):** first check whether a newer *major* is out — `composer update` respects the existing `^1.8`-style constraint in `composer.json` and will never cross a major boundary on its own, so a project can sit years behind silently otherwise.
+
+  ```bash
+  LATEST=$(composer show laravel/boost --all 2>/dev/null | grep -m1 '^versions' | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  INSTALLED=$(composer show laravel/boost 2>/dev/null | grep -m1 '^versions' | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  echo "latest=$LATEST installed=$INSTALLED"
+  ```
+
+  Compare the leading number of each. If `LATEST`'s major is greater than `INSTALLED`'s, a major upgrade is available:
+  ```bash
+  composer require laravel/boost:^<latest-major> --dev
+  php artisan boost:install
+  ```
+  Use `boost:install`, not `boost:update`, across a major bump — past majors have restructured how skills/agents are laid out (v1→v2 did), so re-running the full interactive setup is safer than assuming `boost:update` can reconcile the old shape. Let the user answer its prompts live, same as a fresh install. This changes `composer.json`'s constraint, which is a step up in blast radius from the usual same-major bump — say plainly in the summary that a major version changed and what it was before, so the user can review the diff.
+
+  Otherwise (no major available), stay on the routine path:
   ```bash
   composer update laravel/boost
   php artisan boost:update --discover
@@ -133,7 +148,7 @@ If `not-configured`, tell the user to run `/setup-matt-pocock-skills` before rel
 End with a short, concrete list of what actually happened, e.g.:
 
 ```
-✅ Boost: was missing → installed fresh, wired up for Claude Code
+✅ Boost: v1.8.13 → v2.6.0 (major upgrade available) → composer.json updated, re-ran boost:install
 ✅ .gitignore: added .agents/skills/, agent/skills/, .claude/skills/
 ✅ mattpocock/skills: already present → left alone
 ✅ npx skills update: 5 project skills refreshed (incl. laravel-init itself — re-run in a new session to use the updated version)
@@ -147,4 +162,5 @@ Don't just say "done" — call out anything that needs the user's attention, lik
 
 - **No `npx`/Node available:** tell the user directly — this step can't be silently skipped.
 - **`boost:install` re-run by accident:** harmless, it just re-asks the interactive questions.
+- **`composer show laravel/boost --all` fails or returns nothing (offline, private registry unreachable):** don't block on it — skip the major-version check for this run, fall through to the routine `composer update` path, and say in the summary that the major-version check couldn't run.
 - **`skills-lock.json` in the project:** not a pin, and not a reason to stop. The skills CLI writes this file automatically on every `add`; it records each skill's source and a content hash, and `update` rewrites it in place. Run the update without asking. (`npx skills experimental_install` restores from it if a project ever needs to be rebuilt from the lock.)
