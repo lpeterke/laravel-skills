@@ -13,7 +13,9 @@ It sits alongside two other pieces that are deliberately *not* duplicated here:
 
 This repo is for everything that's specific to *Lars* rather than to a project or to general engineering practice: his own Laravel/Statamic conventions, his own workflows, and — for now — the `laravel-init` skill that glues Boost + mattpocock/skills together so setting up a project is one instruction instead of three separate systems to remember.
 
-Skills here are distributed via the [skills CLI](https://github.com/vercel-labs/skills) (`npx skills`), which discovers any `skills/<name>/SKILL.md` in this repo automatically — it does not read this file or the README to decide what exists. Keep that in mind: the README is for humans, this file is for agents editing the repo, and neither one gates what `npx skills add lpeterke/laravel-skills --all` actually installs.
+Skills here are distributed via the [skills CLI](https://github.com/vercel-labs/skills) (`npx skills`), which discovers any `SKILL.md` file anywhere in this repo automatically (confirmed by reading the CLI's own source — it isn't scoped to `skills/`) — it does not read this file or the README to decide what exists. Keep that in mind: the README is for humans, this file is for agents editing the repo, and neither one gates what `npx skills add lpeterke/laravel-skills --all` actually installs.
+
+A skill can opt out of the default `--all`/listing behavior with `metadata: { internal: true }` in its frontmatter (confirmed from the CLI source). This is a partial exclusion, not a hard one: an explicit `npx skills add ... --skill <name>` still installs it regardless of the flag. For repo-development tooling that must never be installable into a project under any invocation, don't use `metadata: internal` — don't name the file `SKILL.md` at all, and keep it outside `skills/`. The CLI's discovery is a literal filename match against `SKILL.md` anywhere in the tree; anything else is invisible to it, full stop. See `internal/refresh-skills-catalog.md` for the pattern.
 
 ## The README
 
@@ -23,7 +25,7 @@ Keep it brutally short. It answers exactly three questions for someone who wants
 - **Consumer-facing only.** Anything about developing *this* repo — testing a change, publishing one, how the skills CLI behaves internally, why a step exists — goes in this file instead. If Lars is the only person who'd ever run it, it isn't README material.
 - **No migration or one-off cleanup steps.** When a change here would strand an already-installed project, fix it inside the skill so it self-heals on the next run. Don't push the fix onto the reader.
 - **No machine-specific paths.** This repo may end up public; `/Users/lars/...` doesn't belong in it.
-- **Adding a skill doesn't mean adding a README section.** The install command already pulls everything via `--all`; a per-skill listing is just something else to keep in sync.
+- **The "Available skills" section is generated, never hand-edited.** Run the routine in `internal/refresh-skills-catalog.md` to regenerate it — don't write catalog entries by hand, that's exactly the kind of drift a manually maintained list accumulates.
 
 If you're about to add a fourth section, the answer is almost always that the content belongs here.
 
@@ -31,15 +33,18 @@ If you're about to add a fourth section, the answer is almost always that the co
 
 ```
 laravel-skills/
-├── README.md              — install, use, update. Commands only, no prose (see below)
+├── README.md              — install, use, update, available skills. Commands + a generated catalog (see below)
 ├── CLAUDE.md               — this file
+├── internal/               — repo-dev-only routines; never discoverable by the skills CLI (no SKILL.md filename, not under skills/)
+│   └── refresh-skills-catalog.md
 └── skills/
     └── <skill-name>/
         └── SKILL.md        — required: YAML frontmatter (name, description) + instructions
             (optional: scripts/, references/, assets/ subfolders per skill)
+            (optional: metadata: { internal: true } — excludes it from --all/listing, but not from an explicit --skill install; see above)
 ```
 
-Every skill lives in its own folder under `skills/`. One `SKILL.md` per folder, folder name matches the skill's `name` frontmatter field, kebab-case.
+Every published skill lives in its own folder under `skills/`. One `SKILL.md` per folder, folder name matches the skill's `name` frontmatter field, kebab-case. Repo-dev-only routines that must stay unpublishable go in `internal/` instead, as a plain `.md` file — see above for why.
 
 ## Adding a new skill
 
@@ -75,10 +80,18 @@ The details, worth knowing precisely because several of these behaviours are sil
 
 ## Updating the `laravel-init` skill specifically
 
-`laravel-init` is the orchestration point between this repo, Boost, and mattpocock/skills. If Boost's install/update commands change (check `laravel/boost`'s own docs/CHANGELOG periodically — Boost evolves independently of this repo), or if the mattpocock/skills repo restructures its own skill names, update `skills/laravel-init/SKILL.md` to match. Don't let it silently drift out of date with either upstream project.
+`laravel-init` is the orchestration point between this repo, Boost, and mattpocock/skills. If Boost's install/update commands change (Boost evolves independently of this repo), or if the mattpocock/skills repo restructures its own skill names, update `skills/laravel-init/SKILL.md` to match. Don't let it silently drift out of date with either upstream project.
+
+Don't rely on remembering to check this by hand — `internal/refresh-skills-catalog.md` (see below) automates exactly this drift check.
+
+## Keeping this repo's own docs in sync
+
+`internal/refresh-skills-catalog.md` is this repo's own maintenance routine: it checks for drift against Boost and mattpocock/skills, and regenerates the README's "Available skills" section — the catalog of what `laravel-init` actually pulls into a project, sourced from Boost's and mattpocock/skills' current skill sets, not from this repo's own `skills/` folder. It's not a real skill by design (see *The goal* above), so follow it by reading the file directly rather than by name.
+
+Run it after any bigger change to this repo — what `laravel-init` installs from Boost or mattpocock/skills changes, or anything else that could make the README or `laravel-init` drift from reality. When in doubt after a change, run it.
 
 ## Things to avoid
 
-- Don't duplicate content that Boost or mattpocock/skills already own — link to / invoke them instead.
+- Don't duplicate content that Boost or mattpocock/skills already own — link to / invoke them instead. The "Available skills" catalog is the one sanctioned exception: name + a short gist per skill, for discoverability, not their instructions. If a table entry grows past one line, it's become duplication.
 - Don't bake in machine-specific paths, personal API keys, or anything not safe to commit publicly (this repo may end up public/shared).
 - Don't add a `depends_on`-style mechanism expecting the skills CLI to auto-install sibling skills — that's not a shipped feature as of writing. `--all` already installs everything in this repo in one command; that's sufficient.
