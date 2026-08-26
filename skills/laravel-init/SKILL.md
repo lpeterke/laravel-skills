@@ -141,9 +141,45 @@ This is what makes a curation-list change here self-healing in every existing pr
 
 Keep both commands project-scoped (`-p`), not global — each project gets its own copy so one project's skill versions never silently affect another.
 
-## Step 5 — Refresh every project-scoped skill
+## Step 5 — livewire-security: install where Livewire is present, prune where it isn't
 
-Always run this, on every pass, regardless of what Step 4 did:
+One skill, from a third source. [`olgunozoktas/livewire-alpine-skills`](https://github.com/olgunozoktas/livewire-alpine-skills) ships three; only `livewire-security` is taken. The other two are deliberately skipped — `livewire-development` collides by name with Boost's own skill at `.claude/skills/livewire-development` and would silently overwrite it (see CLAUDE.md's *Upstream sources*), and `alpinejs-development` isn't carrying its weight until an Alpine question comes up that Boost can't answer.
+
+Gate it on Livewire actually being installed — Boost gates its own Livewire skill the same way, and a Livewire security skill in a plain API project is dead context:
+
+```bash
+if grep -q '"livewire/livewire"' composer.json 2>/dev/null; then
+  LW_SKILLS=(livewire-security)
+  npx skills add olgunozoktas/livewire-alpine-skills --skill "${LW_SKILLS[@]}" --agent '*' -p -y
+else
+  LW_SKILLS=()
+fi
+```
+
+Then prune anything else installed from that source, exactly as Step 4 does for mattpocock/skills:
+
+```bash
+STALE=$(node -e '
+  const fs = require("fs");
+  const curated = new Set(process.argv[1] ? process.argv[1].split(" ") : []);
+  if (!fs.existsSync("skills-lock.json")) process.exit(0);
+  const lock = JSON.parse(fs.readFileSync("skills-lock.json", "utf8"));
+  const stale = Object.entries(lock.skills || {})
+    .filter(([name, entry]) => entry.source === "olgunozoktas/livewire-alpine-skills" && !curated.has(name))
+    .map(([name]) => name);
+  console.log(stale.join(" "));
+' "${LW_SKILLS[*]}")
+
+[ -n "$STALE" ] && echo "$STALE" | xargs npx skills remove -p -y
+```
+
+Array form and `xargs` for the same zsh word-splitting reasons Step 4 documents. `LW_SKILLS=()` in the `else` branch is what makes the gate self-healing in both directions: a project that removes Livewire gets the skill pruned on the next run, without a separate uninstall path.
+
+No extra update handling is needed — the lock records `"sourceType": "github"`, so Step 6's `npx skills update -p -y` refreshes it like everything else. Verified, along with the fact that `bin/` survives the copy and `php bin/scan.php --self-test` passes (22/22) from the installed location.
+
+## Step 6 — Refresh every project-scoped skill
+
+Always run this, on every pass, regardless of what Steps 4 and 5 did:
 
 ```bash
 npx skills add lpeterke/laravel-skills --all -p -y
@@ -220,7 +256,7 @@ Three things to know, and to tell the user when relevant:
 - **A `deleted upstream` warning is informational.** `update` prints it for anything missing from its source but won't act on it under `-y`. For this repo's skills the prune above has already handled it; for anything else, report the warning rather than removing files on a guess.
 - **Locally-installed skills are skipped by `update`, and by the prune.** The prune matches `source` exactly against `lpeterke/laravel-skills`, so a copy installed from a local path (`source` is a filesystem path, `sourceType` `local`) is left alone — which is right, that's a deliberate dev install. `npx skills update` only refetches skills whose `skills-lock.json` entry has `"sourceType": "github"`. Anything installed from a local path (`npx skills add /path/to/repo`) is silently ignored — it prints `No project skills to update.` rather than an error. To refresh those, re-run `npx skills add <path> --all -p`.
 
-## Step 6 — Verify the Boost MCP server actually responds
+## Step 7 — Verify the Boost MCP server actually responds
 
 Boost being installed doesn't mean its MCP server works — a PHP error, a broken `.env`, or a failed migration all leave the package in place and the server dead. Speak MCP to it directly:
 
@@ -246,7 +282,7 @@ claude mcp add -s local -t stdio laravel-boost php artisan boost:mcp
 
 For any other agent, say which one is in use and point at Boost's own registration details (`command: php`, `args: artisan boost:mcp`) rather than guessing at its config format.
 
-## Step 7 — Configure mattpocock's skills non-interactively
+## Step 8 — Configure mattpocock's skills non-interactively
 
 `setup-matt-pocock-skills` configures the per-repo state the rest of mattpocock's engineering skills assume exists: issue tracker, triage label vocabulary, domain doc layout. It has `disable-model-invocation: true` and is normally a prompt-driven skill meant to be run by hand via `/setup-matt-pocock-skills`. Run it here instead, with fixed answers, so this whole pass stays non-interactive — these are freelance/solo Laravel projects, and the answers below are always the right ones for that shape of project.
 
@@ -280,7 +316,7 @@ Local markdown, under `.scratch/`. See `docs/agents/issue-tracker.md`.
 Single-context. See `docs/agents/domain.md`.
 ```
 
-## Step 8 — Report a summary
+## Step 9 — Report a summary
 
 End with a short, concrete list of what actually happened, e.g.:
 
@@ -288,13 +324,14 @@ End with a short, concrete list of what actually happened, e.g.:
 ✅ Boost: v1.8.13 → v2.6.0 (major upgrade available) → composer.json updated, re-ran boost:install
 ✅ .gitignore: added .agents/skills/, agent/skills/, .claude/skills/
 ✅ mattpocock/skills: 19 curated skills installed/refreshed; pruned 2 stale (triage, ask-matt) from an earlier --all install
+✅ livewire-security: installed (livewire/livewire present)
 ✅ lpeterke/laravel-skills: 2 skills refreshed (laravel-init updated — re-run in a new session to use the new version; laravel-lint-setup newly installed); pruned 1 stale (init, renamed)
 ✅ npx skills update: 20 project skills refreshed
 ✅ Boost MCP: responds over stdio, connected in Claude Code
 ✅ mattpocock/skills setup: configured (local markdown tracker, single-context domain docs)
 ```
 
-**Don't run `laravel-lint-setup` from here.** Step 5 installs and refreshes it; whether and when to run it is the
+**Don't run `laravel-lint-setup` from here.** Step 6 installs and refreshes it; whether and when to run it is the
 user's call, because it changes project code — it rewrites `composer.json`, reformats every `.blade.php` file on its
 first run, and can migrate the project's tests from PHPUnit to Pest. That's a different kind of change from anything
 this skill does, and it doesn't belong bundled into "set up my AI tooling".

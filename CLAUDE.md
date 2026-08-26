@@ -6,10 +6,11 @@ This file is for an agent (or Lars) working *on* this repository itself — i.e.
 
 This repo is Lars's personal, portable layer of AI-agent skills for Laravel/Statamic freelance work. It exists to solve one problem: getting consistent, high-quality AI coding assistance set up in a new or existing Laravel project should take one command, not a checklist of manual steps re-derived from memory each time.
 
-It sits alongside two other pieces that are deliberately *not* duplicated here:
+It sits alongside three other pieces that are deliberately *not* duplicated here:
 
 - **Laravel Boost** (`laravel/boost`) — official, per-project, tied to whatever packages that specific project has installed (Livewire, Filament, Pest, etc.). Installed/updated via Composer + `php artisan boost:install`/`boost:update`, not via this repo.
 - **mattpocock/skills** — third-party general engineering skills (grilling for requirements, domain modeling, code review, TDD). Installed via `npx skills add mattpocock/skills`, not duplicated here.
+- **olgunozoktas/livewire-alpine-skills** — one skill only, `livewire-security`, gated on the project having Livewire. Installed via `npx skills add`, not duplicated here. See *Upstream sources* for why the other two skills in that repo are deliberately skipped.
 
 This repo is for everything that's specific to *Lars* rather than to a project or to general engineering practice: his own Laravel/Statamic conventions and his own workflows. Two skills so far, and they're deliberately independent of each other:
 
@@ -111,6 +112,41 @@ with; dropping the prune leaves dead skills installed forever.
 Everything in this repo that mirrors someone else's decisions has an upstream to re-derive it from. When Lars asks to
 "bring a skill up to date", these are the places to look — go to the source, not to memory, and not to a docs page when
 the source is code.
+
+**`laravel-init` Step 5 — [olgunozoktas/livewire-alpine-skills](https://github.com/olgunozoktas/livewire-alpine-skills).**
+That repo ships three skills. `laravel-init` takes exactly one, `livewire-security`, and the two exclusions are
+load-bearing decisions rather than oversights — don't "complete the set" on a future drift check.
+
+- **`livewire-development` is excluded because it collides with Boost.** Both are named `livewire-development`, and
+  the collision is destructive, not cosmetic. Boost writes to `base_path($agent->skillsPath().'/'.$skill->name)` →
+  `.claude/skills/livewire-development` (`SkillWriter.php:38`, `ClaudeCode.php:62`), through a `copyDirectory()` that
+  calls `deleteDirectory($target)` first (`SkillWriter.php:206`), and `deleteDirectory()` unlinks a symlink
+  (`SkillWriter.php:156`). That's exactly the symlink `npx skills` creates. So `boost:install --skills` silently
+  unlinks it and drops Boost's copy in place, while `.agents/skills/` and `skills-lock.json` still say the other skill
+  is installed — `npx skills update` reports everything fine while the agent reads Boost's version. Whichever tool ran
+  last wins, with no diff and no warning. In `laravel-init` the skills CLI runs after Boost so it wins on a fresh run,
+  but Step 2's `post-update-cmd` hook means the next `composer update` flips it back. Boost's documented "a user skill
+  of the same name overrides the built-in one" (`SkillComposer::skills()` merges user skills last) is real but only
+  applies to skills in `.ai/skills/` — it does not rescue anything the vercel CLI installs. Boost also ships
+  *version-selected* Livewire skills (v2/v3/v4, picked from the installed major); the excluded skill is v4-only, so on
+  a v3 project the swap replaces a correct skill with a wrong one. If the depth is ever wanted, vendor it under a
+  different name — the collision is on the name, not the content — and accept owning a fork of ~10.6k lines.
+- **`alpinejs-development` is excluded on cost, not correctness.** Boost ships no Alpine skill at all, so there's no
+  collision and it would work standalone (its own frontmatter names Blade and Livewire as trigger contexts, and its
+  "Using Alpine with Livewire" section carries the bridge rules). It's just not worth a third upstream until an Alpine
+  question comes up that Boost can't answer. The repo's claim that `livewire-development` is the "entry point" that
+  "pulls this skill in" via `bin/stack.sh` is prose, not a mechanism: that script is `readlink` + a candidate-path loop
+  + `echo`, and nothing lets a bash script inject a skill into context.
+
+What was verified about `livewire-security` itself, and what to re-check if it ever misbehaves: the lock records
+`"source": "olgunozoktas/livewire-alpine-skills"`, `"sourceType": "github"` (so Step 6's `npx skills update` refreshes
+it, and neither Step 4's nor Step 6's prune — which match on `mattpocock/skills` and `lpeterke/laravel-skills` — can
+touch it); `bin/` survives the install and `php bin/scan.php --self-test` passes 22/22 from the installed location; its
+internal script references are `bin/scan.php`, relative to the skill dir and therefore correct once installed. The
+skill's own `bin/verify-facts.php` re-checks its claims against the installed Livewire — that's the drift signal to
+run after a Livewire upgrade. Treat this upstream as provisional: it was one commit old when adopted, with no track
+record. Its factual grounding checked out on audit (pinned to `livewire/livewire@81f35ea`, verified against source),
+but its self-reported counts contradict each other across files, so don't trust a number in its docs without checking.
 
 **`laravel-lint-setup`** — checked in this order:
 
