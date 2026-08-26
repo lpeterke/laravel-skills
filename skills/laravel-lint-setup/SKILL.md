@@ -65,6 +65,10 @@ grep -q '"nunomaduro/larastan"' composer.json && echo LEGACY-LARASTAN
   Deliberately no explicit versions: composer resolves the current releases and writes the caret constraints itself,
   so this skill never carries a version number that goes stale. The starter kit's floors are `^1.27` (Pint) and `^3.9`
   (Larastan); whatever composer picks today is at or above both.
+- **Present** → before touching any config file, check whether it's actually current — including major
+  version bumps. Full procedure (a shell function portable across bash 3.2 and zsh, the upgrade-guide check
+  for major bumps, per-package notes on what to read in that guide) is in
+  `references/version-check.md` — follow it now, then come back here.
 - **`driftingly/rector-laravel` without `rector/rector`** can't happen — it requires Rector — but the reverse is
   common: a project that adopted Rector without the Laravel rules. Add the extension in that case; it's what teaches
   Rector about facades, Eloquent, collections and the Laravel version sets.
@@ -444,8 +448,10 @@ Say what the state is and what you changed, per piece. On a repeat run most line
 the useful signal:
 
 ```
-✅ Packages: laravel/pint ^1.30 already present; larastan/larastan ^3.10, rector/rector ^2.6,
-   driftingly/rector-laravel ^2.5 installed (new)
+✅ Packages: laravel/pint ^1.30, rector/rector ^2.6, driftingly/rector-laravel ^2.5 already current
+⚠️  larastan/larastan: v2.9 → v3.10 (major upgrade available) → composer.json constraint updated. Per
+   larastan's UPGRADE.md, 3.0 stopped inferring Eloquent relation generics from method bodies — expect new
+   errors at the same level; see types:check below for how they were handled.
 ✅ pint.json: already had preset laravel; added Pint/laravel_blade
 ✅ Prettier deps: prettier, prettier-plugin-blade, prettier-plugin-tailwindcss installed via npm
 ✅ phpstan.neon: created (larastan + carbon extensions, 5 paths, level 7)
