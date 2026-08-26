@@ -86,21 +86,42 @@ grep -qxF 'agent/skills/' .gitignore 2>/dev/null || echo 'agent/skills/' >> .git
 
 If any of these directories are *already tracked* from before this step existed (`git ls-files .agents/skills .claude/skills agent/skills` returns matches), adding them to `.gitignore` alone won't stop tracking them. Flag this to the user and offer `git rm -r --cached <dir>` for each one rather than running it unasked — it rewrites the index.
 
-## Step 4 — mattpocock/skills: install if missing
+## Step 4 — mattpocock/skills: install the curated set, prune the rest
+
+Don't install the whole mattpocock/skills repo. A chunk of it isn't for this: the `in-progress/` bucket is explicitly beta ("public on purpose, feedback wanted, not shipped in the plugin"), `misc/` is "kept around but rarely used, not promoted" and includes skills that are hard-TypeScript (`migrate-to-shoehorn`, `setup-ts-deep-modules`) or npm-tooling-specific (`setup-pre-commit`'s Husky/lint-staged/Prettier stack) with no Laravel equivalent. Of the remaining promoted `engineering/`+`productivity/` skills, a few more are cut because they don't carry their weight for Lars's freelance Laravel work specifically: `triage` and `to-tickets` assume a formal issue tracker with triage labels, which these projects don't run; `wayfinder` is built for work bigger than a typical freelance engagement's scope; `ask-matt`, `teach`, and `wait-what` are generic productivity/meta tools that don't add Laravel-specific leverage.
+
+That leaves this curated set — always ensure exactly these are installed, every run, regardless of what was there before:
 
 ```bash
-npx skills list -p 2>/dev/null
+MP_SKILLS=(grill-me grill-with-docs improve-codebase-architecture tdd setup-matt-pocock-skills handoff prototype grilling domain-modeling codebase-design diagnosing-bugs implement code-review research to-spec resolving-merge-conflicts wizard to-questionnaire writing-for-agents)
+
+npx skills add mattpocock/skills --skill "${MP_SKILLS[@]}" --agent '*' -p -y
 ```
 
-If mattpocock's skills aren't in the list:
+Use the array form (`MP_SKILLS=(...)`, expanded as `"${MP_SKILLS[@]}"`), not a plain space-separated string expanded unquoted — confirmed the hard way: under zsh (this machine's default shell), unquoted scalar expansion doesn't word-split the way it does in bash, so `--skill $MP_SKILLS` silently collapses the whole list into one bad skill name and the install fails with "No matching skills found." The array form expands correctly in both shells.
+
+Then prune anything else this project has installed from mattpocock/skills — whether from an older, pre-curation run of this skill (which used `--all`) or from a manual `npx skills add`. Detect it from `skills-lock.json` rather than assuming: every mattpocock-sourced entry records `"source": "mattpocock/skills"` regardless of which skill it is, so anything with that source *not* in `MP_SKILLS` is stale:
 
 ```bash
-npx skills add mattpocock/skills --all -p -y
+STALE=$(node -e '
+  const fs = require("fs");
+  const curated = new Set(process.argv[1].split(" "));
+  if (!fs.existsSync("skills-lock.json")) process.exit(0);
+  const lock = JSON.parse(fs.readFileSync("skills-lock.json", "utf8"));
+  const stale = Object.entries(lock.skills || {})
+    .filter(([name, entry]) => entry.source === "mattpocock/skills" && !curated.has(name))
+    .map(([name]) => name);
+  console.log(stale.join(" "));
+' "${MP_SKILLS[*]}")
+
+[ -n "$STALE" ] && echo "$STALE" | xargs npx skills remove -p -y
 ```
 
-If they're already there, do nothing here — Step 5 refreshes them.
+Pipe through `xargs` rather than `npx skills remove $STALE -p -y` for the same reason as above — `xargs` does its own word-splitting on whitespace regardless of which shell is running, so it isn't subject to the bash/zsh discrepancy a raw unquoted expansion would be.
 
-Keep this project-scoped (`-p`), not global — each project gets its own copy so one project's skill versions never silently affect another.
+This is what makes a curation-list change here self-healing in every existing project on the next `laravel-init` run, the same pattern used elsewhere in this repo for renamed/dropped skills — no README migration step needed.
+
+Keep both commands project-scoped (`-p`), not global — each project gets its own copy so one project's skill versions never silently affect another.
 
 ## Step 5 — Refresh every project-scoped skill
 
@@ -110,7 +131,7 @@ Always run this, on every pass, regardless of what Step 4 did:
 npx skills update -p -y
 ```
 
-This refetches every project-scoped skill from its source — mattpocock's, this repo's own skills, anything else installed. `-p` keeps it to project scope, `-y` skips the scope prompt.
+This refetches every project-scoped skill from its source — the curated mattpocock set from Step 4, this repo's own skills, anything else installed. `-p` keeps it to project scope, `-y` skips the scope prompt.
 
 Two things to know, and to tell the user when relevant:
 
@@ -148,15 +169,39 @@ claude mcp add -s local -t stdio laravel-boost php artisan boost:mcp
 
 For any other agent, say which one is in use and point at Boost's own registration details (`command: php`, `args: artisan boost:mcp`) rather than guessing at its config format.
 
-## Step 7 — Check whether mattpocock's skills need setup
+## Step 7 — Configure mattpocock's skills non-interactively
 
-`setup-matt-pocock-skills` configures the per-repo state the rest of mattpocock's engineering skills assume exists: issue tracker, triage label vocabulary, domain doc layout. It has `disable-model-invocation: true`, so it never runs on its own — only an explicit `/setup-matt-pocock-skills` invocation runs it. Check whether that's already happened, using the same signal file the skill itself writes as its completion marker:
+`setup-matt-pocock-skills` configures the per-repo state the rest of mattpocock's engineering skills assume exists: issue tracker, triage label vocabulary, domain doc layout. It has `disable-model-invocation: true` and is normally a prompt-driven skill meant to be run by hand via `/setup-matt-pocock-skills`. Run it here instead, with fixed answers, so this whole pass stays non-interactive — these are freelance/solo Laravel projects, and the answers below are always the right ones for that shape of project.
+
+Check whether it's already configured, using the same signal file the skill itself writes as its completion marker:
 
 ```bash
 test -f docs/agents/issue-tracker.md && echo configured || echo not-configured
 ```
 
-If `not-configured`, tell the user to run `/setup-matt-pocock-skills` before relying on the other engineering skills. Don't run it yourself — it's interactive and asks the user questions step by step — and don't skip mentioning it just because it's optional.
+If `configured`, leave it alone — re-running it is only for switching issue trackers later, which is the user's call, not this skill's.
+
+If `not-configured`, follow `setup-matt-pocock-skills`' own Explore → Write process (it's installed at `.agents/skills/setup-matt-pocock-skills/` from Step 4, seed templates included), but fix its three per-repo questions instead of asking them:
+
+- **Section A (issue tracker): always "Local markdown."** Skip the git-remote check the skill would otherwise use to propose GitHub/GitLab — these projects don't run a shared tracker. Write `docs/agents/issue-tracker.md` from the seed template at `.agents/skills/setup-matt-pocock-skills/issue-tracker-local.md`.
+- **Section B (triage labels): skip entirely.** `triage` isn't part of the curated set from Step 4, and the setup skill's own instructions already skip this section whenever `triage` isn't installed — nothing extra to do here.
+- **Section C (domain docs): always single-context**, which is the skill's own default for everything except a pnpm/npm-workspace monorepo — never the case for a Laravel/Statamic project. Write `docs/agents/domain.md` from `.agents/skills/setup-matt-pocock-skills/domain.md`.
+
+Skip the skill's own "confirm and edit" draft-review step too (its step 3) — showing a draft only matters when an answer was actually in question, and here none of them are.
+
+Then write the `## Agent skills` block into whichever of `CLAUDE.md`/`AGENTS.md` already exists (create one only if neither exists, and ask the user which rather than guessing), following the setup skill's own file-selection rules — but omit the `### Triage labels` sub-block, since Section B never ran:
+
+```markdown
+## Agent skills
+
+### Issue tracker
+
+Local markdown, under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context. See `docs/agents/domain.md`.
+```
 
 ## Step 8 — Report a summary
 
@@ -165,10 +210,10 @@ End with a short, concrete list of what actually happened, e.g.:
 ```
 ✅ Boost: v1.8.13 → v2.6.0 (major upgrade available) → composer.json updated, re-ran boost:install
 ✅ .gitignore: added .agents/skills/, agent/skills/, .claude/skills/
-✅ mattpocock/skills: already present → left alone
-✅ npx skills update: 5 project skills refreshed (incl. laravel-init itself — re-run in a new session to use the updated version)
+✅ mattpocock/skills: 19 curated skills installed/refreshed; pruned 2 stale (triage, ask-matt) from an earlier --all install
+✅ npx skills update: 20 project skills refreshed (incl. laravel-init itself — re-run in a new session to use the updated version)
 ✅ Boost MCP: responds over stdio, connected in Claude Code
-⚠️ mattpocock/skills: not yet configured — run /setup-matt-pocock-skills before relying on them
+✅ mattpocock/skills setup: configured (local markdown tracker, single-context domain docs)
 ```
 
 Don't just say "done" — call out anything that needs the user's attention, like a Boost interactive prompt that needs an answer, or a skill repo that failed to resolve.
