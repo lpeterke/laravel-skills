@@ -28,29 +28,42 @@ Every branch below ends by running `php artisan boost:install --guidelines --ski
   ```
   Agent/IDE selection (Claude Code, Cursor, etc.) is a separate, genuinely interactive question the command still asks — let the user answer that live. The three flags only remove the feature-toggle prompt, not the agent one.
 
-- **`BOOST_PRESENT=1` (already installed):** first check whether a newer *major* is out — `composer update` respects the existing `^1.8`-style constraint in `composer.json` and will never cross a major boundary on its own, so a project can sit years behind silently otherwise.
+- **`BOOST_PRESENT=1` (already installed):** find the latest published version straight from the repo — not Packagist, not the docs site (already caught lagging once, see `internal/refresh-skills-catalog.md`) — and compare it against what's actually installed:
 
   ```bash
-  LATEST=$(composer show laravel/boost --all 2>/dev/null | grep -m1 '^versions' | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  LATEST=$(git ls-remote --tags --refs https://github.com/laravel/boost.git 2>/dev/null | awk -F/ '{print $NF}' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
   INSTALLED=$(composer show laravel/boost 2>/dev/null | grep -m1 '^versions' | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
   echo "latest=$LATEST installed=$INSTALLED"
   ```
 
-  Compare the leading number of each. If `LATEST`'s major is greater than `INSTALLED`'s, a major upgrade is available:
-  ```bash
-  composer require laravel/boost:^<latest-major> --dev
-  php artisan boost:install --guidelines --skills --mcp
-  ```
-  Past majors have restructured how skills/agents are laid out (v1→v2 did), so re-running the full setup is safer than assuming an update can reconcile the old shape. This changes `composer.json`'s constraint, which is a step up in blast radius from the usual same-major bump — say plainly in the summary that a major version changed and what it was before, so the user can review the diff.
+  Then, depending on how they compare:
 
-  Otherwise (no major available), stay on the routine path:
-  ```bash
-  composer update laravel/boost
-  php artisan boost:install --guidelines --skills --mcp
-  ```
-  First line updates the package itself; second re-syncs everything currently available for the packages actually installed — it re-derives the list from `composer.json` fresh each run, so packages added since the last pass (Livewire, Filament, Pest…) get picked up without a separate discovery step.
+  - **Major behind** (`LATEST`'s leading number is greater than `INSTALLED`'s): `composer update` respects the existing `^1.8`-style constraint in `composer.json` and will never cross a major boundary on its own, so add the new constraint explicitly —
+    ```bash
+    composer require laravel/boost:^<latest-major> --dev
+    php artisan boost:install --guidelines --skills --mcp
+    ```
+    Past majors have restructured how skills/agents are laid out (v1→v2 did), so re-running the full setup is safer than assuming an update can reconcile the old shape. This changes `composer.json`'s constraint, which is a step up in blast radius from the usual same-major bump — say plainly in the summary that a major version changed and what it was before, so the user can review the diff.
 
-  If `composer.json`'s `post-update-cmd` scripts don't already mention `boost:update`, mention once that adding `"@php artisan boost:update --ansi"` there keeps resources fresh on every `composer update`. Offer it; don't edit `composer.json` unasked.
+  - **Same major, newer minor/patch** (`LATEST` ≠ `INSTALLED`, same leading number): stay inside the existing constraint —
+    ```bash
+    composer update laravel/boost
+    php artisan boost:install --guidelines --skills --mcp
+    ```
+
+  - **Already on `LATEST`**: no composer command needed, but still run
+    ```bash
+    php artisan boost:install --guidelines --skills --mcp
+    ```
+    unconditionally — it re-derives the skill/guideline list from `composer.json` fresh each run, so a package added since the last pass (Livewire, Filament, Pest…) gets picked up even when Boost's own version hasn't moved. This is also what actually catches the "skills silently never got turned on" failure mode above; it isn't tied to a version bump.
+
+  If `git ls-remote` fails (offline, GitHub unreachable) don't block — skip straight to running `boost:install --guidelines --skills --mcp` against whatever's currently required, and say in the summary that the version check couldn't run.
+
+Regardless of which of the three above ran, check whether `composer.json`'s `post-update-cmd` scripts already include `boost:update`:
+```bash
+grep -q 'boost:update' composer.json 2>/dev/null && echo present || echo missing
+```
+If `missing`, mention once that adding `"@php artisan boost:update --ansi"` there keeps resources fresh on every future `composer update`, on *any* run (fresh install included) — not just when a version bump happened. Offer it; don't edit `composer.json` unasked.
 
 Whichever branch ran: never hand-edit the generated `CLAUDE.md` / `AGENTS.md` / `.mcp.json` afterward — they're regenerated by these commands and edits will be lost.
 
@@ -163,6 +176,5 @@ Don't just say "done" — call out anything that needs the user's attention, lik
 ## Edge cases
 
 - **No `npx`/Node available:** tell the user directly — this step can't be silently skipped.
-- **`boost:install` re-run by accident:** harmless, it just re-asks the interactive questions.
-- **`composer show laravel/boost --all` fails or returns nothing (offline, private registry unreachable):** don't block on it — skip the major-version check for this run, fall through to the routine `composer update` path, and say in the summary that the major-version check couldn't run.
+- **`boost:install` re-run by accident:** harmless — with the explicit flags it just re-syncs, it doesn't re-ask the agent/IDE question unless `boost.json` has no agents recorded yet.
 - **`skills-lock.json` in the project:** not a pin, and not a reason to stop. The skills CLI writes this file automatically on every `add`; it records each skill's source and a content hash, and `update` rewrites it in place. Run the update without asking. (`npx skills experimental_install` restores from it if a project ever needs to be rebuilt from the lock.)
