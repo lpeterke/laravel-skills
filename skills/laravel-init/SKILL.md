@@ -145,16 +145,20 @@ Keep both commands project-scoped (`-p`), not global — each project gets its o
 
 One skill, from a third source. [`olgunozoktas/livewire-alpine-skills`](https://github.com/olgunozoktas/livewire-alpine-skills) ships three; only `livewire-security` is taken. The other two are deliberately skipped — `livewire-development` collides by name with Boost's own skill at `.claude/skills/livewire-development` and would silently overwrite it (see CLAUDE.md's *Upstream sources*), and `alpinejs-development` isn't carrying its weight until an Alpine question comes up that Boost can't answer.
 
-Gate it on Livewire actually being installed — Boost gates its own Livewire skill the same way, and a Livewire security skill in a plain API project is dead context:
+Gate it on Livewire being present **anywhere in the dependency tree, not just a direct `composer.json` requirement**. Check `composer.lock`, not `composer.json`:
 
 ```bash
-if grep -q '"livewire/livewire"' composer.json 2>/dev/null; then
+if grep -q '"name": "livewire/livewire"' composer.lock 2>/dev/null || [ -d vendor/livewire/livewire ]; then
   LW_SKILLS=(livewire-security)
   npx skills add olgunozoktas/livewire-alpine-skills --skill "${LW_SKILLS[@]}" --agent '*' -p -y
 else
   LW_SKILLS=()
 fi
 ```
+
+**Deliberately not the same check as Boost's own Livewire skill.** Boost's `DiscoverPackagePaths::$mustBeDirect` withholds `livewire-development` unless `livewire/livewire` is a *direct* requirement — its own comment explains why: "This fixes every Boost user getting the MCP guidelines due to indirect import," i.e. it's avoiding dumping Livewire-authoring syntax on a team that never hand-writes a component because Filament (or another Livewire-based package) pulled it in for them. That reasoning doesn't transfer to security guidance: every Filament resource, action, and widget *is* a Livewire component under the hood, so the leak surface — a `public` property serializing to the browser, the morph/hydrate cycle, `#[Locked]` — is exactly as live whether the project typed `composer require livewire/livewire` itself or got it transitively. Gating security relevance on who typed the package name doesn't hold up, so this check reads `composer.lock` (every installed package, direct or not) instead of `composer.json`'s `require`. Verified against a real project: keikaku has `filament/filament` as its only direct Livewire-adjacent requirement, with `livewire/livewire` arriving transitively — `composer.json` doesn't mention it, `composer.lock` does. The old `composer.json`-only gate missed exactly this case and reported "skipped, no livewire/livewire dependency" on a project that ships six Filament packages built on Livewire.
+
+`vendor/livewire/livewire` is a fallback for the case `composer.lock` isn't readable for some reason; the primary check is the lock file since it doesn't depend on `composer install` having already run.
 
 Then prune anything else installed from that source, exactly as Step 4 does for mattpocock/skills:
 

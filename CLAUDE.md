@@ -84,8 +84,8 @@ The details, worth knowing precisely because several of these behaviours are sil
 - **`add` copies, it doesn't symlink the source.** The copy lands in the project's `.agents/skills/<name>/`; the per-agent directories (`.claude/skills/` etc.) are symlinks into that. So editing this repo never live-updates an installed project.
 - **`laravel-init` updates itself one run late.** The agent follows the copy already installed in the project. Its own update step pulls the new version, but the run in progress finishes on the old instructions. Any change to it therefore takes effect on the next invocation, in a fresh session.
 - **`update` never adds a skill that isn't already in the lock.** It iterates `skills-lock.json` and refreshes those entries only. Verified: a project whose lock listed 2 of a repo's 37 skills still had exactly 2 after `npx skills update -p -y`. New skills added to this repo therefore reach a project only via `npx skills add`, never via `update`.
-- **`add` overwrites an already-installed skill in place.** It is not a no-op on a skill that's already there — the installed `SKILL.md` is replaced with the current upstream copy. Verified by editing a source skill and re-running `add --all`: the change landed. This is why `laravel-init` Step 5's `npx skills add lpeterke/laravel-skills --all -p -y` is the update mechanism for this repo's own skills, and why they need no separate `update` handling.
-- **A renamed skill is a delete plus an add, and neither `add` nor `update` does the delete.** `update` flags the old name (`The following skills … appear to have been deleted upstream`) but keeps it, because `-y` means non-interactive and deletion is skipped; `add --all` fetches the new name and leaves the old directory sitting there. Verified: after renaming a skill upstream, a re-run of `add --all` left *both* directories installed. `laravel-init` Step 5 therefore ends with an explicit prune — it lists the repo's current skills over the GitHub contents API and removes any `skills-lock.json` entry sourced from `lpeterke/laravel-skills` that's no longer among them. That generalises what used to be a hardcoded cleanup for the `init` → `laravel-init` rename, so a future rename needs no new code and no README migration step. Prefer this pattern over a README step whenever a repo change would otherwise strand a project.
+- **`add` overwrites an already-installed skill in place.** It is not a no-op on a skill that's already there — the installed `SKILL.md` is replaced with the current upstream copy. Verified by editing a source skill and re-running `add --all`: the change landed. This is why `laravel-init` Step 6's `npx skills add lpeterke/laravel-skills --all -p -y` is the update mechanism for this repo's own skills, and why they need no separate `update` handling.
+- **A renamed skill is a delete plus an add, and neither `add` nor `update` does the delete.** `update` flags the old name (`The following skills … appear to have been deleted upstream`) but keeps it, because `-y` means non-interactive and deletion is skipped; `add --all` fetches the new name and leaves the old directory sitting there. Verified: after renaming a skill upstream, a re-run of `add --all` left *both* directories installed. `laravel-init` Step 6 therefore ends with an explicit prune — it lists the repo's current skills over the GitHub contents API and removes any `skills-lock.json` entry sourced from `lpeterke/laravel-skills` that's no longer among them. That generalises what used to be a hardcoded cleanup for the `init` → `laravel-init` rename, so a future rename needs no new code and no README migration step. Prefer this pattern over a README step whenever a repo change would otherwise strand a project.
   - The prune's one real hazard: if the API call fails, the "current skills" list is empty and *everything* from this repo matches as stale. Confirmed by testing — the filter marked the live skill for removal. The step guards with a hard `exit 0` on an empty list; don't remove that guard.
 
 ## Updating the `laravel-init` skill specifically
@@ -94,7 +94,7 @@ The details, worth knowing precisely because several of these behaviours are sil
 
 Don't rely on remembering to check this by hand — `internal/refresh-skills-catalog.md` (see below) automates exactly this drift check.
 
-One structural note: `laravel-init` Step 5 is what keeps this repo's own skills current in every project, and it takes
+One structural note: `laravel-init` Step 6 is what keeps this repo's own skills current in every project, and it takes
 three parts — `npx skills add lpeterke/laravel-skills --all -p -y`, then `npx skills update -p -y`, then the stale-skill
 prune. Each covers a gap the others don't:
 
@@ -104,7 +104,7 @@ prune. Each covers a gap the others don't:
 | Brand-new skill | `add --all` only — `update` can't see it, it's not in the lock |
 | Renamed or deleted skill | the prune only — `add` leaves the old copy, `update` won't delete under `-y` |
 
-Keep all three when editing Step 5. Dropping the `add` strands projects on the skill set they were first installed
+Keep all three when editing Step 6. Dropping the `add` strands projects on the skill set they were first installed
 with; dropping the prune leaves dead skills installed forever.
 
 ## Upstream sources
