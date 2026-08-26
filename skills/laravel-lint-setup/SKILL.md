@@ -1,6 +1,6 @@
 ---
 name: laravel-lint-setup
-description: Set up or verify a Laravel project's linting, formatting and static analysis so it matches the official laravel/livewire-starter-kit — Laravel Pint (with Blade formatting opted in via Pint/laravel_blade) plus Larastan/PHPStan — wires the composer lint/lint:check/types:check/test/ci:check scripts, then runs the whole suite green. Use whenever the user says "set up linting", "lint setup", "add pint", "add larastan", "add phpstan", "set up static analysis", "format my blade files", "make composer test work", asks why `composer lint` or `composer test` is missing or failing, or when opening a Laravel project whose pint.json / phpstan.neon looks missing, partial or out of date. Standalone — nothing else needs to have run first. Safe to run repeatedly — it detects what's already correct and only fixes the gaps.
+description: Set up or verify a Laravel project's linting, formatting and static analysis so it matches the official laravel/livewire-starter-kit — Laravel Pint (with Blade formatting opted in via Pint/laravel_blade), Larastan/PHPStan, and Rector with the driftingly/rector-laravel extension — wires the composer lint/lint:check/refactor/refactor:check/types:check/test/ci:check scripts, then runs the whole suite green. Use whenever the user says "set up linting", "lint setup", "add pint", "add larastan", "add phpstan", "add rector", "set up rector", "set up static analysis", "automated refactoring", "format my blade files", "make composer test work", asks why `composer lint` or `composer test` is missing or failing, or when opening a Laravel project whose pint.json / phpstan.neon looks missing, partial or out of date. Standalone — nothing else needs to have run first. Safe to run repeatedly — it detects what's already correct and only fixes the gaps.
 ---
 
 # Laravel Lint Setup
@@ -15,10 +15,12 @@ The end state, every time:
 | --- | --- |
 | `laravel/pint` (dev) | installed, recent enough to know `--blade` |
 | `larastan/larastan` (dev) | installed, 3.x |
+| `rector/rector` + `driftingly/rector-laravel` (dev) | installed |
 | `pint.json` | `{"preset": "laravel", "rules": {"Pint/laravel_blade": true}}` |
 | prettier deps (dev, npm) | `prettier`, `prettier-plugin-blade`, `prettier-plugin-tailwindcss` |
 | `phpstan.neon` | larastan + carbon extensions, starter-kit paths, level 7 |
-| composer scripts | `lint`, `lint:check`, `types:check`, `test`, `ci:check` |
+| `rector.php` | same paths, `withComposerBased(laravel: true)`, deadCode + codeQuality |
+| composer scripts | `lint`, `lint:check`, `refactor`, `refactor:check`, `types:check`, `test`, `ci:check` |
 | verification | `composer test` exits 0 |
 
 **Every step below is a detect-then-act check.** Read the current state first, change only what's actually wrong, and
@@ -29,7 +31,7 @@ not on rewriting files that were already right.
 
 `composer.json` must exist in the project root and require `laravel/framework`. If not, stop — this is Laravel-specific.
 
-Then look at the tree, because Step 4 can rewrite a lot of files:
+Then look at the tree, because Step 7 can rewrite a lot of files:
 
 ```bash
 git status --porcelain | head -20
@@ -51,19 +53,31 @@ into work in progress. So:
 ```bash
 grep -q '"laravel/pint"' composer.json && echo pint-present || echo pint-missing
 grep -q '"larastan/larastan"' composer.json && echo larastan-present || echo larastan-missing
+grep -q '"rector/rector"' composer.json && echo rector-present || echo rector-missing
+grep -q '"driftingly/rector-laravel"' composer.json && echo rector-laravel-present || echo rector-laravel-missing
 grep -q '"nunomaduro/larastan"' composer.json && echo LEGACY-LARASTAN
 ```
 
-- **Missing** → `composer require --dev laravel/pint larastan/larastan` (install only the ones missing). Deliberately
-  no explicit version: composer resolves the current release and writes the caret constraint itself, so this skill
-  never carries a version number that goes stale. The starter kit's floors are `^1.27` and `^3.9`; whatever composer
-  picks today is at or above both.
+- **Missing** → install only the ones missing:
+  ```bash
+  composer require --dev laravel/pint larastan/larastan rector/rector driftingly/rector-laravel
+  ```
+  Deliberately no explicit versions: composer resolves the current releases and writes the caret constraints itself,
+  so this skill never carries a version number that goes stale. The starter kit's floors are `^1.27` (Pint) and `^3.9`
+  (Larastan); whatever composer picks today is at or above both.
+- **`driftingly/rector-laravel` without `rector/rector`** can't happen — it requires Rector — but the reverse is
+  common: a project that adopted Rector without the Laravel rules. Add the extension in that case; it's what teaches
+  Rector about facades, Eloquent, collections and the Laravel version sets.
+- **Rector needs `require.php` in `composer.json`.** Verified: with no PHP constraint declared, a `rector.php` using
+  `withPhpSets()` dies with *"We could not find local composer.json to determine your PHP version"*. Every real
+  Laravel skeleton declares one, but check — if it's absent, add it to match the project's actual PHP rather than
+  working around it in `rector.php`.
 - **`nunomaduro/larastan` (the pre-3.0 name)** → migrate, it's the same project renamed:
   ```bash
   composer remove --dev nunomaduro/larastan
   composer require --dev larastan/larastan
   ```
-  Then fix any `includes:` line in the phpstan config still pointing at `vendor/nunomaduro/larastan/...` (Step 3
+  Then fix any `includes:` line in the phpstan config still pointing at `vendor/nunomaduro/larastan/...` (Step 4
   rewrites it anyway) and any `NunoMaduro\Larastan\` references in custom rules or the config.
 - **Pint present but too old to know `--blade`** — check the capability, not the version number:
   ```bash
@@ -193,9 +207,82 @@ Merging into an existing config:
 - **Existing `ignoreErrors`, `excludePaths`, `baseline` include, `parameters` of any other kind** → preserve all of it.
 - **Existing `phpstan-baseline.neon`** → keep its `includes:` entry. Don't regenerate it here; Step 6 decides that.
 
-## Step 5 — Composer scripts
+## Step 5 — `rector.php`
 
-The starter kit's five, verbatim:
+Rector is the one tool here that rewrites **application logic**, not just whitespace or type annotations. Configure it
+conservatively and let it be ratcheted up later; a lint setup is not the moment to refactor someone's codebase.
+
+Target for a project with no `rector.php`:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use Rector\Config\RectorConfig;
+
+return RectorConfig::configure()
+    ->withPaths([
+        __DIR__.'/app',
+        __DIR__.'/bootstrap/app.php',
+        __DIR__.'/config',
+        __DIR__.'/database',
+        __DIR__.'/routes',
+    ])
+    ->withComposerBased(laravel: true)
+    ->withPreparedSets(
+        deadCode: true,
+        codeQuality: true,
+    );
+```
+
+Why each line:
+
+- **Same paths as `phpstan.neon`.** Keeping the two tools' scope identical means one mental model for "what's
+  analysed". Drop any path this skeleton doesn't have, same as Step 4. `tests/` is deliberately excluded to match
+  PHPStan; adding it later is a one-line change and a reasonable thing to want.
+- **`withComposerBased(laravel: true)`** is the current recommended way to get the Laravel rules — it reads
+  `composer.json` and applies the version sets for Laravel (and Faker, Livewire, Cashier when installed) up to the
+  installed version. Don't use `LaravelSetList` / `LaravelLevelSetList` constants: rector-laravel's own README marks
+  them **deprecated** in favour of this, and they need hand-editing on every Laravel upgrade.
+- **`deadCode` + `codeQuality`, and not `withPhpSets()` or `typeDeclarations`.** Those two prepared sets are the
+  well-behaved ones. `withPhpSets()` applies every PHP-version migration at once, and `typeDeclarations` adds inferred
+  types to signatures across the codebase — both produce large diffs and belong in a deliberate upgrade, not here.
+
+### `codeQuality` adds `declare(strict_types=1)` — say so
+
+`codeQuality` includes `SafeDeclareStrictTypesRector`, which prepends `declare(strict_types=1)` to files. Confirmed by
+isolating the sets: `deadCode` alone doesn't do it, `codeQuality` alone does.
+
+It's guarded — the rule calls `isFileStrictTypeSafe()` and skips any file where it detects scalar coercion — but that
+check is *static and per-file*, so it can't see a caller passing `"5"` to an `int` parameter at runtime. Under strict
+types that becomes a `TypeError` instead of a silent cast. On a well-typed codebase this is a non-event; on an older
+one it's a real behaviour change.
+
+So: **enable it, and report it.** Name it in the Step 9 summary along with how many files got the declare. If the
+project is legacy enough that this looks risky, skip that one rule rather than dropping `codeQuality` wholesale:
+
+```php
+use Rector\TypeDeclaration\Rector\StmtsAwareInterface\SafeDeclareStrictTypesRector;
+
+    ->withSkip([
+        SafeDeclareStrictTypesRector::class,
+    ])
+```
+
+Merging into an existing `rector.php`:
+
+- **Already has `withComposerBased(laravel: true)` or a `LaravelSetList` entry** → the Laravel rules are wired up.
+  Leave the config alone; only mention the deprecation if it's using the old constants.
+- **Rector configured but no Laravel rules** → add `->withComposerBased(laravel: true)` and nothing else. Don't
+  restructure their sets, skips or paths.
+- **Uses the old `static function (RectorConfig $rectorConfig)` callback style** (Rector 0.x) → it still works. Note
+  it as outdated and leave it; converting a config to the fluent builder is a migration, not a setup step.
+- **Any existing `withSkip`, `withRules`, `withConfiguredRule`, custom paths** → preserve all of it verbatim.
+
+## Step 6 — Composer scripts
+
+The starter kit's five, plus the two Rector ones:
 
 ```json
 "lint": [
@@ -204,11 +291,18 @@ The starter kit's five, verbatim:
 "lint:check": [
     "pint --parallel --test"
 ],
+"refactor": [
+    "rector process"
+],
+"refactor:check": [
+    "rector process --dry-run"
+],
 "types:check": [
     "phpstan analyse"
 ],
 "test": [
     "@php artisan config:clear --ansi",
+    "@refactor:check",
     "@lint:check",
     "@types:check",
     "@php artisan test"
@@ -219,8 +313,19 @@ The starter kit's five, verbatim:
 ]
 ```
 
-`composer test` is the single command that runs the whole suite — style check, static analysis, then the test suite —
-and `ci:check` is the same thing with composer's process timeout lifted, for CI.
+`composer test` is the single command that runs the whole suite — refactoring check, style check, static analysis,
+then the test suite — and `ci:check` is the same thing with composer's process timeout lifted, for CI.
+
+Two things about this ordering, both load-bearing:
+
+- **`refactor:check` runs before `lint:check`, not after.** Rector's output is not Pint-formatted — verified: after
+  `rector process`, `pint --test` exits 1 because Rector doesn't add the blank line before `return` that the Laravel
+  preset wants. So the fix order is always `composer refactor` **then** `composer lint`, and putting the check in the
+  same order means the first failure you see is the first one to fix. Reversed, you'd format, then refactor, then have
+  to format again — three cycles instead of two.
+- **`refactor:check` is a dry run and never writes.** `rector process --dry-run` prints the diff it *would* apply and
+  exits **2** when anything is pending, **0** when clean — verified both ways. That non-zero exit is what makes it a
+  usable gate; `composer test` fails loudly rather than quietly refactoring the codebase mid-test-run.
 
 Merging notes:
 
@@ -229,20 +334,30 @@ Merging notes:
 - **A project that already has its own `test`** doing something else (e.g. `pest --parallel`, or a coverage run) →
   keep the command it runs and insert `@lint:check` and `@types:check` ahead of it. Don't replace someone's test
   invocation.
+- **An existing `rector` or `refactor` script** → normalise to `refactor` / `refactor:check`, keeping whatever flags
+  it already passed. If it ran `rector process` with no dry-run counterpart, add one; a checker that mutates the
+  working tree is useless in `test`.
 - **Existing `lint`/`format`/`analyse` scripts** pointing at Pint or PHPStan → normalise to the names above so
   `test` can reference them, and keep an old name as an alias (`"format": ["@lint"]`) if it's likely in muscle memory
   or a Makefile. Say what you renamed.
 - Edit `composer.json` by parsing the JSON, and keep the file's existing indentation (4 spaces in every Laravel
   skeleton).
 
-## Step 6 — Run it green
+## Step 7 — Run it green
 
-Order matters on a first run: `lint:check` only *reports*, so fix first, then verify.
+Order matters on a first run: the `:check` scripts only *report*, so fix first, then verify. And Rector goes before
+Pint, for the reason in Step 6 — Rector's output needs formatting afterwards, so doing it the other way wastes a pass.
 
 ```bash
-composer lint          # Pint fixes PHP + Blade in place
-composer test          # config:clear → lint:check → types:check → artisan test
+composer refactor      # Rector rewrites code in place
+composer lint          # Pint then formats PHP + Blade, including whatever Rector just wrote
+composer test          # config:clear → refactor:check → lint:check → types:check → artisan test
 ```
+
+**Review the Rector diff before moving on.** This is the one part of the setup that changes program logic rather than
+layout — dead code removed, `declare(strict_types=1)` added, Laravel-version rules applied. `git diff` it, and if
+anything looks wrong, narrow `rector.php` (skip the rule, or drop a path) rather than accepting a rewrite nobody
+reviewed.
 
 `composer test` exiting 0 is the definition of done for this skill. If it doesn't, work the failure by stage — the
 output names which script failed.
@@ -261,6 +376,22 @@ errors, which means a file can't be formatted rather than merely being unformatt
 - `require Node.js to be installed` / `prettier dependencies … to be installed` → Step 3 didn't take. Re-check
   `node -v` and the three devDependencies.
 - `do not satisfy the versions required` → install the exact versions from Pint's message.
+
+**`refactor:check` fails after `composer refactor` already ran.** A second dry run should exit 0; if it exits 2 again,
+Rector didn't converge.
+- **Rector and Pint fighting** — Rector reformats something Pint then undoes, or the reverse, so each run dirties the
+  other. Identify the rule from the diff and `withSkip([...])` it. Formatting is Pint's job; a Rector rule that argues
+  with the Laravel preset should lose.
+- **Genuinely non-idempotent rule** (rare) — Rector applies a change, then wants to change it again. Skip that rule
+  and note it.
+- `We could not find local "composer.json" to determine your PHP version` → the project has no `require.php`
+  constraint. Add one (Step 1) rather than hardcoding a version in `rector.php`.
+- **Enormous diff on the first run.** Not a failure, but stop and check it's wanted before committing. If it's too
+  much to review, cut scope in `rector.php` — drop to `deadCode: true` only, or narrow `withPaths()` to `app/` — get
+  the pipeline green, and widen later. A reviewed small diff beats an unreviewed large one.
+- **Very slow.** Rector caches between runs; the first pass on a large codebase is the slow one. If it's a problem in
+  CI, `rector process --dry-run --no-progress-bar` trims output noise, and `ci:check` already lifts composer's
+  process timeout.
 
 **`types:check` fails.**
 - `Allowed memory size … exhausted` → change the script to `phpstan analyse --memory-limit=2G`.
@@ -285,9 +416,11 @@ errors, which means a file can't be formatted rather than merely being unformatt
   reference formatting at all. **Pre-existing application test failures are out of scope** — this skill sets up
   linting, it doesn't fix the app. Report them, confirm `lint:check` and `types:check` both pass, and say plainly that
   the suite is red for reasons that predate this run.
-- **Failures the reformat caused are in scope.** Blade formatting rewrites whitespace and attribute layout, which can
-  break assertions on exact HTML strings, snapshot tests, and Dusk/browser selectors keyed to markup. Fix the
-  assertion (the new formatting is the intended output), not the formatting.
+- **Failures this skill caused are in scope.** Two sources. Blade formatting rewrites whitespace and attribute layout,
+  which can break assertions on exact HTML strings, snapshot tests, and Dusk/browser selectors keyed to markup — fix
+  the assertion, since the new formatting is the intended output. Rector is the more serious one: it changed logic, so
+  a newly failing test may be a genuine regression it introduced. Don't paper over it. Find the rule from `git diff`,
+  revert that change, and `withSkip([...])` the rule.
 - Environment failures — no `.env`, no `APP_KEY`, missing `database/database.sqlite` — aren't lint problems either,
   but they're cheap to clear and block verification, so just do it:
   ```bash
@@ -297,7 +430,7 @@ errors, which means a file can't be formatted rather than merely being unformatt
 
 Re-run `composer test` after each fix until it's green.
 
-## Step 7 — `.editorconfig` (usually a no-op)
+## Step 8 — `.editorconfig` (usually a no-op)
 
 The starter kit ships the standard Laravel `.editorconfig` — LF, UTF-8, 4-space indent, final newline, trimmed
 trailing whitespace, 2-space YAML. Every Laravel skeleton has the same file, so this check normally passes untouched.
@@ -305,17 +438,21 @@ If it's missing, write it; if it exists, leave it alone unless it contradicts Pi
 which would have the editor and Pint undoing each other on every save) — flag that conflict rather than silently
 rewriting a file the user chose.
 
-## Step 8 — Report
+## Step 9 — Report
 
 Say what the state is and what you changed, per piece. On a repeat run most lines are "already correct", and that's
 the useful signal:
 
 ```
-✅ Packages: laravel/pint ^1.30 already present, larastan/larastan ^3.10 installed (new)
+✅ Packages: laravel/pint ^1.30 already present; larastan/larastan ^3.10, rector/rector ^2.6,
+   driftingly/rector-laravel ^2.5 installed (new)
 ✅ pint.json: already had preset laravel; added Pint/laravel_blade
 ✅ Prettier deps: prettier, prettier-plugin-blade, prettier-plugin-tailwindcss installed via npm
 ✅ phpstan.neon: created (larastan + carbon extensions, 5 paths, level 7)
-✅ Composer scripts: lint, lint:check, types:check added; test expanded; ci:check added
+✅ rector.php: created (same 5 paths, withComposerBased(laravel: true), deadCode + codeQuality)
+✅ Composer scripts: lint, lint:check, refactor, refactor:check, types:check added; test expanded; ci:check added
+⚠️  composer refactor: changed 46 files — dead code removed, declare(strict_types=1) added to 31 files.
+   Review the diff; skip SafeDeclareStrictTypesRector in rector.php if strict types aren't wanted yet.
 ✅ composer lint: reformatted 214 files (203 Blade — first run with the rule on)
 ⚠️  types:check: 137 errors at level 7 → baselined to phpstan-baseline.neon. Burn it down over time.
 ✅ composer test: passing
@@ -325,6 +462,10 @@ Run the full suite any time with: composer test
 
 Always close with the `composer test` line — that one command is the deliverable.
 
+**Never report the Rector run as a bare file count.** It is the only step that changed program logic, so say what
+kinds of change it made and flag `declare(strict_types=1)` explicitly whenever it was added. A user skimming the
+summary should not first learn about strict types from a production `TypeError`.
+
 ## Edge cases
 
 - **No Composer / no `vendor/`** → run `composer install` first; every check here reads `vendor/`.
@@ -332,7 +473,11 @@ Always close with the `composer test` line — that one command is the deliverab
 - **Statamic** → nothing special. Antlers is untouched by both tools; Blade files (if any) format normally.
 - **Pint pinned by another package** (a shared config package requiring an old Pint) → don't force the upgrade; report
   the conflict and skip the Blade rule if `--blade` isn't supported.
-- **CI doesn't run these checks.** If `.github/workflows/` exists, grep it for `ci:check`/`pint`/`phpstan`. If nothing
+- **Rector already run by CI or a git hook** → check `.github/workflows/` and `.git/hooks/` before adding the scripts,
+  so the project doesn't end up refactoring twice under two different configs.
+- **Statamic and Rector**: only `withPaths()` entries are touched, so addons and content are untouched. Statamic apps
+  often keep code in `app/` alone, which the default paths already cover.
+- **CI doesn't run these checks.** If `.github/workflows/` exists, grep it for `ci:check`/`pint`/`phpstan`/`rector`. If nothing
   runs them, mention that CI won't catch style or type regressions and that the starter kit's workflow simply runs
   `composer ci:check`. Don't write a workflow file unasked — that's a CI change, not a lint config change.
 - **Re-run on an already-correct project** → every check reports "already correct" and the run ends at Step 6 with a

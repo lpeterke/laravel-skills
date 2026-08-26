@@ -23,7 +23,7 @@ What `laravel-init` brings into a project, from three sources.
 | Skill | What it does |
 | --- | --- |
 | laravel-init | One-pass bootstrap of a project's AI tooling: Boost, the curated mattpocock set, the MCP check |
-| laravel-lint-setup | Sets up Pint and Larastan via Composer scripts. Run `composer test` to execute. |
+| laravel-lint-setup | Sets up Pint, Larastan and Rector via Composer scripts. Run `composer test` to execute. |
 
 **Laravel Boost** ([laravel/boost](https://github.com/laravel/boost) `v2.6.0`, sourced from the package repo directly — its docs website lags actual releases, confirmed by this list once already):
 

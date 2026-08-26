@@ -14,9 +14,9 @@ It sits alongside two other pieces that are deliberately *not* duplicated here:
 This repo is for everything that's specific to *Lars* rather than to a project or to general engineering practice: his own Laravel/Statamic conventions and his own workflows. Two skills so far, and they're deliberately independent of each other:
 
 - **`laravel-init`** — glues Boost + mattpocock/skills together so setting up a project's *AI tooling* is one instruction instead of three separate systems to remember. It installs and refreshes `laravel-lint-setup` along with everything else, but never runs it.
-- **`laravel-lint-setup`** — Pint + Blade formatting + Larastan, to `laravel/livewire-starter-kit` parity. Standalone and user-invoked.
+- **`laravel-lint-setup`** — Pint + Blade formatting + Larastan + Rector, to `laravel/livewire-starter-kit` parity (Blade formatting and Rector are additions on top). Standalone and user-invoked.
 
-**Keep them separate.** AI tooling and linting don't intersect: `laravel-lint-setup` depends on nothing `laravel-init` does (its only precondition is a `composer.json` requiring `laravel/framework`), and `laravel-init` doesn't invoke it. That's a deliberate boundary, not an oversight — `laravel-lint-setup` rewrites `composer.json` and reformats every Blade file in the project, which is a categorically different blast radius from installing agent skills, and it's the user's call when to accept it. Don't "helpfully" chain them.
+**Keep them separate.** AI tooling and linting don't intersect: `laravel-lint-setup` depends on nothing `laravel-init` does (its only precondition is a `composer.json` requiring `laravel/framework`), and `laravel-init` doesn't invoke it. That's a deliberate boundary, not an oversight — `laravel-lint-setup` rewrites `composer.json`, reformats every Blade file, and lets Rector rewrite application logic, which is a categorically different blast radius from installing agent skills, and it's the user's call when to accept it. Don't "helpfully" chain them.
 
 Skills here are distributed via the [skills CLI](https://github.com/vercel-labs/skills) (`npx skills`), which discovers any `SKILL.md` file anywhere in this repo automatically (confirmed by reading the CLI's own source — it isn't scoped to `skills/`) — it does not read this file or the README to decide what exists. Keep that in mind: the README is for humans, this file is for agents editing the repo, and neither one gates what `npx skills add lpeterke/laravel-skills --all` actually installs.
 
@@ -44,7 +44,7 @@ laravel-skills/
 │   └── refresh-skills-catalog.md
 └── skills/
     ├── laravel-init/       — AI-tooling entry point; installs Boost, mattpocock's set, and this repo's own skills
-    ├── laravel-lint-setup/ — Pint + Blade formatting + Larastan, to livewire-starter-kit parity. Standalone; user-invoked
+    ├── laravel-lint-setup/ — Pint + Blade formatting + Larastan + Rector. Standalone; user-invoked
     └── <skill-name>/
         └── SKILL.md        — required: YAML frontmatter (name, description) + instructions
             (optional: scripts/, references/, assets/ subfolders per skill)
@@ -116,10 +116,12 @@ the source is code.
 
 | Source | What to read | What in the skill depends on it |
 | --- | --- | --- |
-| [laravel/livewire-starter-kit](https://github.com/laravel/livewire-starter-kit) | `pint.json`, `phpstan.neon`, `composer.json`'s `scripts`, `.editorconfig` | Steps 2, 4, 5, 7 — this is the parity target, everything else is secondary |
-| [Pint docs](https://laravel.com/framework/docs/pint) | The *Custom Rules* section, esp. `Pint/laravel_blade`; the CLI options | Step 2's opt-in, Step 6's troubleshooting |
+| [laravel/livewire-starter-kit](https://github.com/laravel/livewire-starter-kit) | `pint.json`, `phpstan.neon`, `composer.json`'s `scripts`, `.editorconfig` | Steps 2, 4, 6, 8 — this is the parity target, everything else is secondary |
+| [Pint docs](https://laravel.com/framework/docs/pint) | The *Custom Rules* section, esp. `Pint/laravel_blade`; the CLI options | Step 2's opt-in, Step 7's troubleshooting |
 | [laravel/pint](https://github.com/laravel/pint) source | `app/Fixers/LaravelBlade/Fixer.php::prettierDependencies()`, `app/Actions/EnsurePrettierIsConfigured.php`, `app/Enums/NodePackageManager.php` | Step 3's exact npm constraints and package-manager detection |
 | [larastan/larastan](https://github.com/larastan/larastan) | README install + config section | Step 1's package name, Step 4's `includes:` path and level |
+| [rectorphp/rector](https://github.com/rectorphp/rector) | README, `templates/rector.php.dist`, `RectorConfigBuilder` | Step 5's config shape and prepared-set names |
+| [driftingly/rector-laravel](https://github.com/driftingly/rector-laravel) | README's *Automate Laravel Upgrades* section | Step 5's `withComposerBased(laravel: true)` |
 
 Three things learned from the source that no docs page states, and that the skill depends on:
 
@@ -134,8 +136,26 @@ Three things learned from the source that no docs page states, and that the skil
   `Pint/laravel_blade` opt-in is Lars's addition on top of parity — don't "fix" it back to match the starter kit on a
   future drift check.
 - **Pint emits JSON, not a table, when an agent runs it** (via `laravel/agent-detector`). One
-  `{"tool":"pint","result":…,"files":[…]}` object per line. Verified live, and documented in the skill's Step 6 so a
+  `{"tool":"pint","result":…,"files":[…]}` object per line. Verified live, and documented in the skill's Step 7 so a
   future agent doesn't read the missing summary line as a failure.
+
+And four more from testing Rector, all of which the skill depends on:
+
+- **`rector process --dry-run` exits 2 with pending changes, 0 when clean.** That non-zero exit is the only reason
+  `refactor:check` works as a gate in `composer test`. Verified both directions.
+- **Rector's output is not Pint-formatted.** After `rector process`, `pint --test` exits 1 — Rector doesn't add the
+  blank line before `return` that the Laravel preset wants. Hence `refactor` before `lint`, and `refactor:check` before
+  `lint:check` in the `test` script. Don't reorder those.
+- **`codeQuality: true` adds `declare(strict_types=1)`** via `SafeDeclareStrictTypesRector`; `deadCode: true` doesn't.
+  Isolated by testing each prepared set alone. The rule is guarded by a per-file static `isFileStrictTypeSafe()` check,
+  which can't see a caller coercing a scalar at runtime — so it's a real, if bounded, behaviour change and the skill
+  reports it explicitly rather than slipping it into a file count.
+- **Rector needs `require.php` in `composer.json`.** Without it, `withPhpSets()` dies with *"We could not find local
+  composer.json to determine your PHP version"*. Every real Laravel skeleton has one; the failure only shows up on
+  hand-rolled `composer.json` files.
+
+**Rector is not starter-kit parity.** `laravel/livewire-starter-kit` ships no `rector.php` and no Rector dependency —
+this is Lars's addition, like the Blade rule. Don't remove it on a future drift check for not matching the starter kit.
 
 The drift check for all of this is automated in `internal/refresh-skills-catalog.md` Step 1. Prefer running that over
 checking these by hand.
