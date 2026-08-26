@@ -295,20 +295,32 @@ End with a short, concrete list of what actually happened, e.g.:
 ```
 
 **Don't run `laravel-lint-setup` from here.** Step 5 installs and refreshes it; whether and when to run it is the
-user's call, because it changes project code — it rewrites `composer.json`, and its first run reformats every
-`.blade.php` file in the project. That's a different kind of change from anything this skill does, and it doesn't
-belong bundled into "set up my AI tooling".
+user's call, because it changes project code — it rewrites `composer.json`, reformats every `.blade.php` file on its
+first run, and can migrate the project's tests from PHPUnit to Pest. That's a different kind of change from anything
+this skill does, and it doesn't belong bundled into "set up my AI tooling".
 
-Mention it once in the summary, as a suggestion and nothing more — most usefully when the project has no `pint.json`
-or no `phpstan.neon`:
+Mention it once in the summary, as a suggestion and nothing more — most usefully when the project has no `pint.json`,
+no `phpstan.neon`, or no `pestphp/pest`:
 
 ```
 ℹ️  laravel-lint-setup is installed and no pint.json/phpstan.neon was found.
     Run it when you want Pint + Larastan set up: "run laravel-lint-setup"
+ℹ️  This project is on PHPUnit. Pest is strongly preferred — run laravel-lint-setup to install it and
+    migrate the existing tests. Re-run laravel-init afterward so Boost's guidelines pick up on Pest
+    being installed (Boost only generates its Pest-specific guidance once the package is actually there).
 ```
 
-A `test -f pint.json && test -f phpstan.neon` check is enough to decide whether that line is worth printing. If both
-exist, stay quiet.
+A `test -f pint.json && test -f phpstan.neon` / `grep -q '"pestphp/pest"' composer.json` check is enough to decide
+whether each line is worth printing. If everything's already in place, stay quiet.
+
+**On "Boost asking for a testing framework": it doesn't, and this skill shouldn't pretend it does.** `boost:install`
+has no interactive testing-framework prompt — verified by reading `InstallCommand.php`. What it actually does is
+detect `pestphp/pest` vs `phpunit/phpunit` in `composer.json` via `PackageRegistry` and render matching guidelines
+(`.ai/pest/core.blade.php` only appears when Pest is present). So there's no prompt to "answer" with Pest — the way
+the preference actually reaches Boost's output is by Pest being installed before `boost:install` runs, which is
+exactly what the nudge above sets up: run `laravel-lint-setup` first, then re-run this skill (Step 2 always re-runs
+`boost:install --guidelines --skills --mcp` unconditionally, so nothing extra is needed once Pest lands — just a
+second pass).
 
 Don't just say "done" — call out anything that needs the user's attention, like a Boost interactive prompt that needs an answer, or a skill repo that failed to resolve.
 

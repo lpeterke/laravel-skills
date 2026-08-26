@@ -14,9 +14,9 @@ It sits alongside two other pieces that are deliberately *not* duplicated here:
 This repo is for everything that's specific to *Lars* rather than to a project or to general engineering practice: his own Laravel/Statamic conventions and his own workflows. Two skills so far, and they're deliberately independent of each other:
 
 - **`laravel-init`** — glues Boost + mattpocock/skills together so setting up a project's *AI tooling* is one instruction instead of three separate systems to remember. It installs and refreshes `laravel-lint-setup` along with everything else, but never runs it.
-- **`laravel-lint-setup`** — Pint + Blade formatting + Larastan + Rector, to `laravel/livewire-starter-kit` parity (Blade formatting and Rector are additions on top). Standalone and user-invoked.
+- **`laravel-lint-setup`** — Pint + Blade formatting + Larastan + Rector, to `laravel/livewire-starter-kit` parity (Blade formatting and Rector are additions on top), plus Pest as this repo's strongly preferred testing framework — installed if missing, existing PHPUnit tests migrated to Pest syntax, kept current including major versions. Standalone and user-invoked.
 
-**Keep them separate.** AI tooling and linting don't intersect: `laravel-lint-setup` depends on nothing `laravel-init` does (its only precondition is a `composer.json` requiring `laravel/framework`), and `laravel-init` doesn't invoke it. That's a deliberate boundary, not an oversight — `laravel-lint-setup` rewrites `composer.json`, reformats every Blade file, and lets Rector rewrite application logic, which is a categorically different blast radius from installing agent skills, and it's the user's call when to accept it. Don't "helpfully" chain them.
+**Keep them separate.** AI tooling and linting don't intersect: `laravel-lint-setup` depends on nothing `laravel-init` does (its only precondition is a `composer.json` requiring `laravel/framework`), and `laravel-init` doesn't invoke it. That's a deliberate boundary, not an oversight — `laravel-lint-setup` rewrites `composer.json`, reformats every Blade file, lets Rector rewrite application logic, and migrates existing tests from PHPUnit to Pest, which is a categorically different blast radius from installing agent skills, and it's the user's call when to accept it. Don't "helpfully" chain them.
 
 Skills here are distributed via the [skills CLI](https://github.com/vercel-labs/skills) (`npx skills`), which discovers any `SKILL.md` file anywhere in this repo automatically (confirmed by reading the CLI's own source — it isn't scoped to `skills/`) — it does not read this file or the README to decide what exists. Keep that in mind: the README is for humans, this file is for agents editing the repo, and neither one gates what `npx skills add lpeterke/laravel-skills --all` actually installs.
 
@@ -44,7 +44,7 @@ laravel-skills/
 │   └── refresh-skills-catalog.md
 └── skills/
     ├── laravel-init/       — AI-tooling entry point; installs Boost, mattpocock's set, and this repo's own skills
-    ├── laravel-lint-setup/ — Pint + Blade formatting + Larastan + Rector. Standalone; user-invoked
+    ├── laravel-lint-setup/ — Pint + Blade formatting + Larastan + Rector + Pest (strongly preferred). Standalone; user-invoked
     └── <skill-name>/
         └── SKILL.md        — required: YAML frontmatter (name, description) + instructions
             (optional: scripts/, references/, assets/ subfolders per skill)
@@ -112,16 +112,18 @@ Everything in this repo that mirrors someone else's decisions has an upstream to
 "bring a skill up to date", these are the places to look — go to the source, not to memory, and not to a docs page when
 the source is code.
 
-**`laravel-lint-setup`** — three upstreams, checked in this order:
+**`laravel-lint-setup`** — checked in this order:
 
 | Source | What to read | What in the skill depends on it |
 | --- | --- | --- |
-| [laravel/livewire-starter-kit](https://github.com/laravel/livewire-starter-kit) | `pint.json`, `phpstan.neon`, `composer.json`'s `scripts`, `.editorconfig` | Steps 2, 4, 6, 8 — this is the parity target, everything else is secondary |
-| [Pint docs](https://laravel.com/framework/docs/pint) | The *Custom Rules* section, esp. `Pint/laravel_blade`; the CLI options | Step 2's opt-in, Step 7's troubleshooting |
-| [laravel/pint](https://github.com/laravel/pint) source | `app/Fixers/LaravelBlade/Fixer.php::prettierDependencies()`, `app/Actions/EnsurePrettierIsConfigured.php`, `app/Enums/NodePackageManager.php` | Step 3's exact npm constraints and package-manager detection |
-| [larastan/larastan](https://github.com/larastan/larastan) | README install + config section | Step 1's package name, Step 4's `includes:` path and level |
-| [rectorphp/rector](https://github.com/rectorphp/rector) | README, `templates/rector.php.dist`, `RectorConfigBuilder` | Step 5's config shape and prepared-set names |
-| [driftingly/rector-laravel](https://github.com/driftingly/rector-laravel) | README's *Automate Laravel Upgrades* section | Step 5's `withComposerBased(laravel: true)` |
+| [laravel/livewire-starter-kit](https://github.com/laravel/livewire-starter-kit) | `pint.json`, `phpstan.neon`, `composer.json`'s `scripts`, `.editorconfig` | Steps 3, 5, 7, 9 — this is the parity target, everything else is secondary |
+| [Pint docs](https://laravel.com/framework/docs/pint) | The *Custom Rules* section, esp. `Pint/laravel_blade`; the CLI options | Step 3's opt-in, Step 8's troubleshooting |
+| [laravel/pint](https://github.com/laravel/pint) source | `app/Fixers/LaravelBlade/Fixer.php::prettierDependencies()`, `app/Actions/EnsurePrettierIsConfigured.php`, `app/Enums/NodePackageManager.php` | Step 4's exact npm constraints and package-manager detection |
+| [larastan/larastan](https://github.com/larastan/larastan) | README install + config section | Step 1's package name, Step 5's `includes:` path and level |
+| [rectorphp/rector](https://github.com/rectorphp/rector) | README, `templates/rector.php.dist`, `RectorConfigBuilder` | Step 6's config shape and prepared-set names |
+| [driftingly/rector-laravel](https://github.com/driftingly/rector-laravel) | README's *Automate Laravel Upgrades* section | Step 6's `withComposerBased(laravel: true)` |
+| [pestphp/pest](https://github.com/pestphp/pest) | `composer.json`'s own `require.php` (the version floor for a major), GitHub release notes | Step 2's install/upgrade logic, `references/version-check.md`'s Pest branch |
+| [laravel/installer](https://github.com/laravel/installer) source | `src/NewCommand.php::installPest()` | Step 2's entire migration sequence — traced from here, not invented |
 
 Three things learned from the source that no docs page states, and that the skill depends on:
 
@@ -136,7 +138,7 @@ Three things learned from the source that no docs page states, and that the skil
   `Pint/laravel_blade` opt-in is Lars's addition on top of parity — don't "fix" it back to match the starter kit on a
   future drift check.
 - **Pint emits JSON, not a table, when an agent runs it** (via `laravel/agent-detector`). One
-  `{"tool":"pint","result":…,"files":[…]}` object per line. Verified live, and documented in the skill's Step 7 so a
+  `{"tool":"pint","result":…,"files":[…]}` object per line. Verified live, and documented in the skill's Step 8 so a
   future agent doesn't read the missing summary line as a failure.
 
 And four more from testing Rector, all of which the skill depends on:
@@ -156,6 +158,36 @@ And four more from testing Rector, all of which the skill depends on:
 
 **Rector is not starter-kit parity.** `laravel/livewire-starter-kit` ships no `rector.php` and no Rector dependency —
 this is Lars's addition, like the Blade rule. Don't remove it on a future drift check for not matching the starter kit.
+
+**Pest is a stronger stance than Rector or the Blade rule: it's not an addition on top of the project's choice, it
+*replaces* the project's choice.** `laravel-lint-setup` migrates an existing PHPUnit project to Pest as part of a
+normal run — this is deliberate, not scope creep, but it is a real divergence from the starter kit, not parity with
+it: `laravel/livewire-starter-kit`'s own `composer.json` requires `phpunit/phpunit`, confirmed directly — it is on
+PHPUnit, not Pest (its `"pestphp/pest-plugin": true` entry is only an `allow-plugins` stub, the same harmless
+leftover found in a bare `laravel new` skeleton, not an actual dependency). Don't cite the starter kit as
+justification for this one; Pest here is purely Lars's own preference, stated explicitly by him, not inferred from
+any upstream.
+
+Four things learned by testing the actual migration end to end, none of them documented anywhere and all load-bearing:
+
+- **`nunomaduro/collision` — a default Laravel dependency, not a Pest package — is what makes `php artisan test`
+  route to Pest.** Read from source: its `TestCommand::usingPest()` is `function_exists('\Pest\version')`, true the
+  moment `pestphp/pest` is required via Composer. `pestphp/pest-plugin-laravel` is not what does this — it's the
+  Laravel-specific helper package `laravel/installer` pairs with core Pest by convention, confirmed from
+  `NewCommand.php`, not required for `artisan test` detection. Corrected mid-session after initially attributing
+  this to the wrong package; verify the mechanism, not just that a plausible-sounding package exists for it.
+- **`pest --drift` fails under `laravel/pao`'s agent-output wrapper**, with an error (`InvalidOption: The [--drift]
+  argument only accepts the directory to convert as argument`) that has nothing to do with the actual cause.
+  `PAO_DISABLE=1` fixes it — verified: identical command, only the env var differs, one throws, one converts. This
+  is the same package that produces Pint's/PHPStan's JSON output elsewhere in this skill, so its interference here
+  isn't a coincidence — it's worth treating as a recurring suspect whenever a CLI tool this skill drives behaves
+  inexplicably under non-interactive execution.
+- **Pest ships no `UPGRADE.md`, `UPGRADING.md`, or `CHANGELOG.md`** (all confirmed 404 on `pestphp/pest`). A major
+  bump's only guidance is its GitHub release notes, which for v5.0.0 is one line pointing at a `pestphp.com`
+  announcement page rather than a structured list.
+- **Pest 5 raised its PHP floor to `^8.4`** — a real gate on a major bump, not just an upgrade-guide curiosity. The
+  skill lets `composer require`'s own resolution failure report this rather than trying to pre-parse it, and does
+  not bump the project's PHP version to force it through.
 
 The drift check for all of this is automated in `internal/refresh-skills-catalog.md` Step 1. Prefer running that over
 checking these by hand.

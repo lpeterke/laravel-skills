@@ -26,6 +26,8 @@ check_lint_package_version "laravel/pint" "laravel/pint"
 check_lint_package_version "larastan/larastan" "larastan/larastan"
 check_lint_package_version "rector/rector" "rectorphp/rector"
 check_lint_package_version "driftingly/rector-laravel" "driftingly/rector-laravel"
+check_lint_package_version "pestphp/pest" "pestphp/pest"
+check_lint_package_version "pestphp/pest-plugin-laravel" "pestphp/pest-plugin-laravel"
 ```
 
 If `git ls-remote` fails for a package (offline, rate-limited), don't block on it — skip that package's check, leave
@@ -41,9 +43,10 @@ For each package where a check succeeded, compare `latest` to `installed` by lea
 - **Major behind** → this is the case worth slowing down for. `composer update` never crosses a major boundary on its
   own, so bumping means widening the constraint — which can break the project in ways a minor/patch update won't.
   Before running the bump, fetch that package's upgrade guide and read what changed, since the file that carries it
-  differs per project (verified by checking all four): Larastan ships `UPGRADE.md`, Rector ships `UPGRADING.md`, Pint
-  and rector-laravel ship neither — for those two, a major bump has historically meant new formatting rules /
-  additional Rector rules, not breaking API changes, so their `CHANGELOG.md` is the next thing to check instead.
+  differs per project (verified by checking all six): Larastan ships `UPGRADE.md`, Rector ships `UPGRADING.md`; Pint,
+  rector-laravel, Pest and pest-plugin-laravel ship neither — for those four, a major bump has historically meant
+  additive changes (new formatting rules, new Rector rules, new Pest features) rather than breaking API, so their
+  `CHANGELOG.md` is the next thing to check instead (Pest and pest-plugin-laravel don't ship one either — see below).
   ```bash
   for candidate in UPGRADE.md UPGRADING.md; do
     curl -fsSL "https://raw.githubusercontent.com/<repo>/HEAD/$candidate" 2>/dev/null && break
@@ -56,9 +59,17 @@ For each package where a check succeeded, compare `latest` to `installed` by lea
     (3.0's guide, for example, stopped inferring Eloquent relation generics from method bodies — a real increase in
     reported errors at the same level, not a regression this skill introduced).
   - **Rector**: changes to the `RectorConfig::configure()` builder methods this skill's `rector.php` calls
-    (`withPaths`, `withComposerBased`, `withPreparedSets`) — if one was renamed or dropped, Step 5's template needs
+    (`withPaths`, `withComposerBased`, `withPreparedSets`) — if one was renamed or dropped, Step 6's template needs
     updating, not just the version bump.
   - **Pint**: changes to `pint.json`'s shape or to the `Pint/laravel_blade` rule specifically.
+  - **Pest**: confirmed neither `UPGRADE.md`, `UPGRADING.md` nor `CHANGELOG.md` exist in `pestphp/pest` — its GitHub
+    release notes for the target major tag are the next thing to check (v5.0.0's, for example, is one line pointing
+    at a `pestphp.com` announcement page rather than a structured list of breaking changes). More importantly,
+    **check the project's PHP floor before attempting the bump**: verified that Pest 5 raised its own requirement to
+    `php: ^8.4` in its `composer.json`. If the project's own `"php"` constraint in `composer.json` is below the new
+    major's floor, `composer require` will fail with a clear dependency-resolution error rather than anything
+    silent — let it, report that plainly, and leave Pest on its current major. Bumping the project's supported PHP
+    version is a decision for the user, not something this skill does as a side effect of a lint-setup pass.
   - Anything else in the guide is the project's own code to fix, not this skill's config — mention it, don't attempt
     to fix it here.
   Then bump the constraint and reinstall:
@@ -69,4 +80,4 @@ For each package where a check succeeded, compare `latest` to `installed` by lea
   the guide actually applies — this is the same "do it, disclose it" pattern `laravel-init` uses for its own
   major-version bumps, for the same reason: the constraint change is real and reviewable, not something to bury in a
   file count. Real breakage from a major bump (new PHPStan errors, a Rector rule now conflicting with Pint) will
-  surface in Step 7 either way — that's what `composer test` is for.
+  surface in Step 8 either way — that's what `composer test` is for.

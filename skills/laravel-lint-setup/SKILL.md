@@ -1,13 +1,15 @@
 ---
 name: laravel-lint-setup
-description: Set up or verify a Laravel project's linting, formatting and static analysis so it matches the official laravel/livewire-starter-kit — Laravel Pint (with Blade formatting opted in via Pint/laravel_blade), Larastan/PHPStan, and Rector with the driftingly/rector-laravel extension — wires the composer lint/lint:check/refactor/refactor:check/types:check/test/ci:check scripts, then runs the whole suite green. Use whenever the user says "set up linting", "lint setup", "add pint", "add larastan", "add phpstan", "add rector", "set up rector", "set up static analysis", "automated refactoring", "format my blade files", "make composer test work", asks why `composer lint` or `composer test` is missing or failing, or when opening a Laravel project whose pint.json / phpstan.neon looks missing, partial or out of date. Standalone — nothing else needs to have run first. Safe to run repeatedly — it detects what's already correct and only fixes the gaps.
+description: Set up or verify a Laravel project's linting, formatting, static analysis and testing framework so it matches the official laravel/livewire-starter-kit — Laravel Pint (with Blade formatting opted in via Pint/laravel_blade), Larastan/PHPStan, Rector with the driftingly/rector-laravel extension, and Pest PHP (the strongly preferred testing framework — installs it if missing, migrates existing PHPUnit-style tests to Pest syntax, upgrades an outdated Pest including major versions) — wires the composer lint/lint:check/refactor/refactor:check/types:check/test/ci:check scripts, then runs the whole suite green. Use whenever the user says "set up linting", "lint setup", "add pint", "add larastan", "add phpstan", "add rector", "set up rector", "add pest", "install pest", "migrate to pest", "convert phpunit to pest", "set up static analysis", "automated refactoring", "format my blade files", "make composer test work", asks why `composer lint` or `composer test` is missing or failing, or when opening a Laravel project whose pint.json / phpstan.neon looks missing, partial or out of date, or that's still on PHPUnit. Standalone — nothing else needs to have run first. Safe to run repeatedly — it detects what's already correct and only fixes the gaps.
 ---
 
 # Laravel Lint Setup
 
-Brings a Laravel (or Statamic) project's code-style and static-analysis setup to parity with the official
-[laravel/livewire-starter-kit](https://github.com/laravel/livewire-starter-kit), plus one deliberate addition the
-starter kit doesn't ship: Blade formatting, opted in through Pint's `Pint/laravel_blade` rule.
+Brings a Laravel (or Statamic) project's code-style, static-analysis and testing-framework setup to parity with the
+official [laravel/livewire-starter-kit](https://github.com/laravel/livewire-starter-kit), plus two deliberate
+additions the starter kit doesn't ship: Blade formatting, opted in through Pint's `Pint/laravel_blade` rule, and
+**Pest as the strongly preferred testing framework** — this repo's standing preference, not a per-project toss-up.
+A project still on PHPUnit isn't left alone; it gets migrated.
 
 The end state, every time:
 
@@ -16,10 +18,12 @@ The end state, every time:
 | `laravel/pint` (dev) | installed, recent enough to know `--blade` |
 | `larastan/larastan` (dev) | installed, 3.x |
 | `rector/rector` + `driftingly/rector-laravel` (dev) | installed |
+| `pestphp/pest` + `pestphp/pest-plugin-laravel` (dev) | installed, latest |
 | `pint.json` | `{"preset": "laravel", "rules": {"Pint/laravel_blade": true}}` |
 | prettier deps (dev, npm) | `prettier`, `prettier-plugin-blade`, `prettier-plugin-tailwindcss` |
 | `phpstan.neon` | larastan + carbon extensions, starter-kit paths, level 7 |
 | `rector.php` | same paths, `withComposerBased(laravel: true)`, deadCode + codeQuality |
+| `tests/` | Pest-initialized (`tests/Pest.php` present); any PHPUnit-style test classes migrated to Pest syntax |
 | composer scripts | `lint`, `lint:check`, `refactor`, `refactor:check`, `types:check`, `test`, `ci:check` |
 | verification | `composer test` exits 0 |
 
@@ -31,22 +35,23 @@ not on rewriting files that were already right.
 
 `composer.json` must exist in the project root and require `laravel/framework`. If not, stop — this is Laravel-specific.
 
-Then look at the tree, because Step 7 can rewrite a lot of files:
+Then look at the tree, because two later steps can rewrite a lot of files at once:
 
 ```bash
 git status --porcelain | head -20
 ```
 
-Enabling Blade formatting for the first time reformats **every** `.blade.php` file in the project — routinely hundreds
-of files in an existing codebase. That is fine and reviewable on a clean tree, and genuinely awkward if it lands mixed
-into work in progress. So:
+Two events in this skill produce a large, first-time diff: Step 8 enabling Blade formatting reformats **every**
+`.blade.php` file in the project, and Step 2 migrating existing PHPUnit-style tests to Pest (via `pest --drift`)
+rewrites every test file it touches, with no dry-run available. Both are fine and reviewable on a clean tree, and
+genuinely awkward landing mixed into work in progress. So:
 
-- **Clean tree** → proceed without asking. The reformat is one reviewable diff, and `git checkout .` undoes it.
-- **Dirty tree, and `Pint/laravel_blade` is not yet in `pint.json`** → say plainly that the first Pint run will
-  reformat every Blade file on top of their uncommitted changes, and ask whether to continue now or after they commit.
-  This is the one place in this skill worth blocking on.
-- **Dirty tree, blade rule already enabled** (i.e. a re-run) → proceed. The formatting is already applied; the next run
-  only touches files that drifted.
+- **Clean tree** → proceed without asking for either. Each is one reviewable diff, and `git checkout .` undoes it.
+- **Dirty tree, and the rewrite hasn't happened yet** (`Pint/laravel_blade` not yet in `pint.json`, or PHPUnit-style
+  test classes still present) → say plainly what the first run will rewrite on top of their uncommitted changes, and
+  ask whether to continue now or after they commit. This is the one place in this skill worth blocking on.
+- **Dirty tree, but that rewrite already happened** (i.e. a re-run) → proceed. The rewrite is already applied; the
+  next run only touches what drifted since.
 
 ## Step 1 — Composer packages
 
@@ -81,7 +86,7 @@ grep -q '"nunomaduro/larastan"' composer.json && echo LEGACY-LARASTAN
   composer remove --dev nunomaduro/larastan
   composer require --dev larastan/larastan
   ```
-  Then fix any `includes:` line in the phpstan config still pointing at `vendor/nunomaduro/larastan/...` (Step 4
+  Then fix any `includes:` line in the phpstan config still pointing at `vendor/nunomaduro/larastan/...` (Step 5
   rewrites it anyway) and any `NunoMaduro\Larastan\` references in custom rules or the config.
 - **Pint present but too old to know `--blade`** — check the capability, not the version number:
   ```bash
@@ -100,7 +105,33 @@ Pint *is* PHP-CS-Fixer with a preset, so running both means two configs fighting
 Pint + PHPStan + PHPCS and will duplicate everything this skill sets up. Say which one you found, say it should be
 retired in favour of Pint, and let the user decide — a project may have a `.php-cs-fixer.php` for a reason.
 
-## Step 2 — `pint.json`
+## Step 2 — Pest: install, initialize, and migrate remaining PHPUnit tests
+
+**This is a standing preference, not a per-project question.** Pest is strongly preferred over PHPUnit for every
+project this skill touches — a project that's on PHPUnit isn't left as-is, it gets migrated as part of this run.
+
+```bash
+grep -q '"pestphp/pest"' composer.json && echo pest-present || echo pest-missing
+grep -rl 'extends TestCase' tests --include='*Test.php' 2>/dev/null | grep -v '/TestCase\.php$'
+```
+
+The second command finds PHPUnit-style test classes still in the codebase (a heuristic, like the competing-tooling
+check in Step 1 — it won't catch every possible PHPUnit idiom, but it catches the common case). Its output matters
+whether or not Pest is already installed: a project can be "on Pest" for new work while still carrying old
+PHPUnit-class tests nobody's converted.
+
+- **`pest-missing`** → install and initialize, then migrate whatever the second command found. The full sequence —
+  traced from `laravel/installer`'s own `NewCommand::installPest()`, not invented, because that's the exact recipe
+  Laravel uses when a fresh project picks Pest — plus two non-obvious failure modes verified by running it end to
+  end, is in `references/pest-migration.md`. Follow it now, then come back here.
+- **`pest-present`, no PHPUnit-style classes found** → nothing to do.
+- **`pest-present`, PHPUnit-style classes still found** → Pest is installed but the migration was never finished
+  (or the project adopted Pest for new tests only). Jump straight to `references/pest-migration.md`'s Drift section
+  — skip the package-install part, the packages are already there.
+- **Already installed, but outdated** → covered by `references/version-check.md`, the same function-based check used
+  for the other four packages. `pestphp/pest` and `pestphp/pest-plugin-laravel` are two more calls into it.
+
+## Step 3 — `pint.json`
 
 Target, matching the starter kit's `{"preset": "laravel"}` with the Blade rule added:
 
@@ -125,7 +156,7 @@ Branch on what's there:
 
 Do the merge by parsing the JSON, not with a regex — `php -r` or `node -e` is fine — and preserve 4-space indentation.
 
-## Step 3 — Prettier dependencies for the Blade rule
+## Step 4 — Prettier dependencies for the Blade rule
 
 This is the step that makes the difference between a working setup and a mystifying failure, so don't skip it.
 
@@ -141,7 +172,7 @@ First, Node has to exist at all:
 node -v || echo NO-NODE
 ```
 
-If there's no Node, **do not enable the blade rule** — back out the `Pint/laravel_blade` line from Step 2, finish the
+If there's no Node, **do not enable the blade rule** — back out the `Pint/laravel_blade` line from Step 3, finish the
 rest of the setup (Pint on PHP files, Larastan, scripts all work fine), and report that Blade formatting is off
 because Node isn't installed and can be turned on later by re-running this skill.
 
@@ -168,7 +199,7 @@ Worth knowing so you don't chase phantom bugs: the rule deliberately skips Envoy
 under `resources/boost/guidelines/`, and email views under `resources/views/emails/` and `resources/views/mail/`. Those
 staying unformatted is correct behaviour, not a failure.
 
-## Step 4 — `phpstan.neon`
+## Step 5 — `phpstan.neon`
 
 The starter kit's config verbatim:
 
@@ -207,11 +238,11 @@ Merging into an existing config:
 - **Existing `includes`** → add the larastan line if absent, keep every other include.
 - **Existing `paths`** → union with the starter-kit list, keep any extra paths the project already analyses.
 - **Existing `level`** → the target is **7**. Leave a level above 7 alone (never lower it). Raise a lower level to 7,
-  and say so explicitly in the summary — that's a real tightening, and Step 6 handles the fallout.
+  and say so explicitly in the summary — that's a real tightening, and Step 7 handles the fallout.
 - **Existing `ignoreErrors`, `excludePaths`, `baseline` include, `parameters` of any other kind** → preserve all of it.
-- **Existing `phpstan-baseline.neon`** → keep its `includes:` entry. Don't regenerate it here; Step 6 decides that.
+- **Existing `phpstan-baseline.neon`** → keep its `includes:` entry. Don't regenerate it here; Step 7 decides that.
 
-## Step 5 — `rector.php`
+## Step 6 — `rector.php`
 
 Rector is the one tool here that rewrites **application logic**, not just whitespace or type annotations. Configure it
 conservatively and let it be ratcheted up later; a lint setup is not the moment to refactor someone's codebase.
@@ -243,7 +274,7 @@ return RectorConfig::configure()
 Why each line:
 
 - **Same paths as `phpstan.neon`.** Keeping the two tools' scope identical means one mental model for "what's
-  analysed". Drop any path this skeleton doesn't have, same as Step 4. `tests/` is deliberately excluded to match
+  analysed". Drop any path this skeleton doesn't have, same as Step 5. `tests/` is deliberately excluded to match
   PHPStan; adding it later is a one-line change and a reasonable thing to want.
 - **`withComposerBased(laravel: true)`** is the current recommended way to get the Laravel rules — it reads
   `composer.json` and applies the version sets for Laravel (and Faker, Livewire, Cashier when installed) up to the
@@ -263,7 +294,7 @@ check is *static and per-file*, so it can't see a caller passing `"5"` to an `in
 types that becomes a `TypeError` instead of a silent cast. On a well-typed codebase this is a non-event; on an older
 one it's a real behaviour change.
 
-So: **enable it, and report it.** Name it in the Step 9 summary along with how many files got the declare. If the
+So: **enable it, and report it.** Name it in the Step 10 summary along with how many files got the declare. If the
 project is legacy enough that this looks risky, skip that one rule rather than dropping `codeQuality` wholesale:
 
 ```php
@@ -284,7 +315,7 @@ Merging into an existing `rector.php`:
   it as outdated and leave it; converting a config to the fluent builder is a migration, not a setup step.
 - **Any existing `withSkip`, `withRules`, `withConfiguredRule`, custom paths** → preserve all of it verbatim.
 
-## Step 6 — Composer scripts
+## Step 7 — Composer scripts
 
 The starter kit's five, plus the two Rector ones:
 
@@ -335,9 +366,15 @@ Merging notes:
 
 - **The default Laravel skeleton already defines `test`** as `["@php artisan config:clear --ansi", "@php artisan test"]`.
   Expand it in place to the four-entry version above rather than adding a differently-named script.
-- **A project that already has its own `test`** doing something else (e.g. `pest --parallel`, or a coverage run) →
-  keep the command it runs and insert `@lint:check` and `@types:check` ahead of it. Don't replace someone's test
-  invocation.
+- **`@php artisan test` needs no branching on PHPUnit vs Pest.** Verified from source:
+  `nunomaduro/collision` — a default dependency of every Laravel app, not a Pest package — provides the `test`
+  artisan command, and its `usingPest()` check is `function_exists('\Pest\version')`. That's true the moment
+  `pestphp/pest` is required via Composer, whether or not `pestphp/pest-plugin-laravel` is also installed. So
+  `php artisan test` routes to Pest with zero config either way, same command, same script. Don't add a check for
+  which one is installed; there's nothing to branch on.
+- **A project that already has its own `test`** doing something else (e.g. `pest --parallel` invoked directly rather
+  than through `artisan test`, or a coverage run) → keep the command it runs and insert `@lint:check` and
+  `@types:check` ahead of it. Don't replace someone's test invocation.
 - **An existing `rector` or `refactor` script** → normalise to `refactor` / `refactor:check`, keeping whatever flags
   it already passed. If it ran `rector process` with no dry-run counterpart, add one; a checker that mutates the
   working tree is useless in `test`.
@@ -347,10 +384,10 @@ Merging notes:
 - Edit `composer.json` by parsing the JSON, and keep the file's existing indentation (4 spaces in every Laravel
   skeleton).
 
-## Step 7 — Run it green
+## Step 8 — Run it green
 
 Order matters on a first run: the `:check` scripts only *report*, so fix first, then verify. And Rector goes before
-Pint, for the reason in Step 6 — Rector's output needs formatting afterwards, so doing it the other way wastes a pass.
+Pint, for the reason in Step 7 — Rector's output needs formatting afterwards, so doing it the other way wastes a pass.
 
 ```bash
 composer refactor      # Rector rewrites code in place
@@ -377,7 +414,7 @@ errors, which means a file can't be formatted rather than merely being unformatt
 - `PrettierException` / a Blade file named in the error → that template has a syntax error Prettier can't parse, or a
   construct that trips the plugin. Fix the template if it's genuinely broken; if it's valid Blade the plugin chokes on,
   add that one file to `notPath` in `pint.json`, note it in the summary, and move on. Don't disable the rule wholesale.
-- `require Node.js to be installed` / `prettier dependencies … to be installed` → Step 3 didn't take. Re-check
+- `require Node.js to be installed` / `prettier dependencies … to be installed` → Step 4 didn't take. Re-check
   `node -v` and the three devDependencies.
 - `do not satisfy the versions required` → install the exact versions from Pint's message.
 
@@ -401,7 +438,7 @@ Rector didn't converge.
 - `Allowed memory size … exhausted` → change the script to `phpstan analyse --memory-limit=2G`.
 - `Internal error` or a flood of unknown-class errors → `composer dump-autoload`, then retry. Stale autoload maps are
   the usual cause.
-- `Path … does not exist` → a path in Step 4's list that this skeleton doesn't have. Remove it.
+- `Path … does not exist` → a path in Step 5's list that this skeleton doesn't have. Remove it.
 - **Real analysis errors.** Count them: `./vendor/bin/phpstan analyse --error-format=table | tail -5`.
   - **Roughly a dozen or fewer** → fix them. At level 7 they're almost always missing parameter/return types, a
     missing `@var` on an Eloquent relation, or a genuinely unhandled null. These are small, safe edits.
@@ -420,11 +457,12 @@ Rector didn't converge.
   reference formatting at all. **Pre-existing application test failures are out of scope** — this skill sets up
   linting, it doesn't fix the app. Report them, confirm `lint:check` and `types:check` both pass, and say plainly that
   the suite is red for reasons that predate this run.
-- **Failures this skill caused are in scope.** Two sources. Blade formatting rewrites whitespace and attribute layout,
-  which can break assertions on exact HTML strings, snapshot tests, and Dusk/browser selectors keyed to markup — fix
-  the assertion, since the new formatting is the intended output. Rector is the more serious one: it changed logic, so
-  a newly failing test may be a genuine regression it introduced. Don't paper over it. Find the rule from `git diff`,
-  revert that change, and `withSkip([...])` the rule.
+- **Failures this skill caused are in scope, from three sources.** Blade formatting rewrites whitespace/attribute
+  layout, breaking assertions on exact HTML strings or Dusk selectors — fix the assertion, the new formatting is
+  correct. Rector changed logic, so a newly failing test may be a genuine regression — find the rule from `git diff`
+  and `withSkip([...])` it, don't paper over it. Pest's `--drift` conversion (Step 2) is the third: a converted test
+  failing where the PHPUnit original passed is a Drift miss on that file — data providers, mocks, and custom
+  assertion classes are the constructs worth checking by hand.
 - Environment failures — no `.env`, no `APP_KEY`, missing `database/database.sqlite` — aren't lint problems either,
   but they're cheap to clear and block verification, so just do it:
   ```bash
@@ -434,7 +472,7 @@ Rector didn't converge.
 
 Re-run `composer test` after each fix until it's green.
 
-## Step 8 — `.editorconfig` (usually a no-op)
+## Step 9 — `.editorconfig` (usually a no-op)
 
 The starter kit ships the standard Laravel `.editorconfig` — LF, UTF-8, 4-space indent, final newline, trimmed
 trailing whitespace, 2-space YAML. Every Laravel skeleton has the same file, so this check normally passes untouched.
@@ -442,7 +480,7 @@ If it's missing, write it; if it exists, leave it alone unless it contradicts Pi
 which would have the editor and Pint undoing each other on every save) — flag that conflict rather than silently
 rewriting a file the user chose.
 
-## Step 9 — Report
+## Step 10 — Report
 
 Say what the state is and what you changed, per piece. On a repeat run most lines are "already correct", and that's
 the useful signal:
@@ -452,6 +490,9 @@ the useful signal:
 ⚠️  larastan/larastan: v2.9 → v3.10 (major upgrade available) → composer.json constraint updated. Per
    larastan's UPGRADE.md, 3.0 stopped inferring Eloquent relation generics from method bodies — expect new
    errors at the same level; see types:check below for how they were handled.
+⚠️  Pest: not installed (project was on PHPUnit only) → installed pestphp/pest ^5.1 + pest-plugin-laravel
+   ^5.0, ran pest --init, migrated 3 PHPUnit-style test files to Pest syntax via --drift. Review
+   git diff tests/ — Drift left one unused import that composer lint below already cleaned up.
 ✅ pint.json: already had preset laravel; added Pint/laravel_blade
 ✅ Prettier deps: prettier, prettier-plugin-blade, prettier-plugin-tailwindcss installed via npm
 ✅ phpstan.neon: created (larastan + carbon extensions, 5 paths, level 7)
@@ -475,7 +516,7 @@ summary should not first learn about strict types from a production `TypeError`.
 ## Edge cases
 
 - **No Composer / no `vendor/`** → run `composer install` first; every check here reads `vendor/`.
-- **No Node** → Blade formatting off, everything else on. Covered in Step 3.
+- **No Node** → Blade formatting off, everything else on. Covered in Step 4.
 - **Statamic** → nothing special. Antlers is untouched by both tools; Blade files (if any) format normally.
 - **Pint pinned by another package** (a shared config package requiring an old Pint) → don't force the upgrade; report
   the conflict and skip the Blade rule if `--blade` isn't supported.
@@ -486,5 +527,5 @@ summary should not first learn about strict types from a production `TypeError`.
 - **CI doesn't run these checks.** If `.github/workflows/` exists, grep it for `ci:check`/`pint`/`phpstan`/`rector`. If nothing
   runs them, mention that CI won't catch style or type regressions and that the starter kit's workflow simply runs
   `composer ci:check`. Don't write a workflow file unasked — that's a CI change, not a lint config change.
-- **Re-run on an already-correct project** → every check reports "already correct" and the run ends at Step 6 with a
+- **Re-run on an already-correct project** → every check reports "already correct" and the run ends at Step 7 with a
   single `composer test`. That's the intended second-run behaviour, not a wasted pass.
