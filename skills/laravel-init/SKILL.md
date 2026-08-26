@@ -1,6 +1,6 @@
 ---
 name: laravel-init
-description: Bootstrap or refresh the AI tooling for a Laravel project in one pass — installs Laravel Boost if it's missing or updates it if it's already there, and installs or updates mattpocock/skills locally in the project. Use this whenever starting a new Laravel project, opening an existing Laravel project where Boost or mattpocock/skills look missing or outdated, or when the user says things like "laravel init", "init this project", "set up AI tooling", "bootstrap boost", or "update my skills". Always run this instead of manually piecing together composer/boost/npx-skills commands one at a time.
+description: Bootstrap or refresh the AI tooling for a Laravel project in one pass — installs Laravel Boost if it's missing or updates it if it's already there, and installs or updates this repo's own skills and mattpocock/skills locally in the project. Sets up AI tooling only — it does not touch linting or application code. Use this whenever starting a new Laravel project, opening an existing Laravel project where Boost or mattpocock/skills look missing or outdated, or when the user says things like "laravel init", "init this project", "set up AI tooling", "bootstrap boost", or "update my skills". Always run this instead of manually piecing together composer/boost/npx-skills commands one at a time.
 ---
 
 # Laravel Init
@@ -146,20 +146,79 @@ Keep both commands project-scoped (`-p`), not global — each project gets its o
 Always run this, on every pass, regardless of what Step 4 did:
 
 ```bash
+npx skills add lpeterke/laravel-skills --all -p -y
 npx skills update -p -y
 ```
 
-This refetches every project-scoped skill from its source — the curated mattpocock set from Step 4, this repo's own skills, anything else installed. `-p` keeps it to project scope, `-y` skips the scope prompt.
+Both commands, in that order, every run. They do different jobs and neither substitutes for the other:
 
-Two things to know, and to tell the user when relevant:
+- **`add … --all` is the install *and* the update path for this repo's own skills** (`laravel-init`,
+  `laravel-lint-setup`, anything added later). Two behaviours, both verified by testing the CLI directly:
+  - It **overwrites in place** when the upstream copy has changed — the installed `SKILL.md` is replaced with the
+    current one, not skipped as "already installed". So this single command keeps every `lpeterke/laravel-skills`
+    skill current; there is no separate update step for them.
+  - It **adds skills that are new to the repo**, which `update` structurally cannot. `update` iterates
+    `skills-lock.json` and refreshes only what's already listed, so a skill added upstream since this project was set
+    up is absent from the lock and invisible to `update`, forever. This is how `laravel-lint-setup` reaches a project
+    that predates it.
+- **`update` refreshes everything else** — the curated mattpocock set from Step 4, and anything else installed.
 
-- **This skill updates itself here, one run late.** The `laravel-init` instructions being followed right now are the copy already installed in the project. If `lpeterke/laravel-skills` changed upstream, this command pulls the new version, but *this* run still finishes on the old one. Say so in the summary, and suggest re-running `laravel-init` in a fresh session if the update actually moved it.
-- **A `deleted upstream` warning for `init` is expected.** This skill used to be called `init`. Projects installed before the rename still carry that stale copy, and `update` reports it as deleted upstream but leaves it in place under `-y`. Clean it up:
-  ```bash
-  npx skills remove init -p -y
-  ```
-  Only do this when the stale skill is this one — check `skills-lock.json` and confirm the `init` entry's `source` is `lpeterke/laravel-skills` before removing anything. If there's no `init` entry, skip silently; most projects won't have one.
-- **Locally-installed skills are skipped.** `npx skills update` only refetches skills whose `skills-lock.json` entry has `"sourceType": "github"`. Anything installed from a local path (`npx skills add /path/to/repo`) is silently ignored — it prints `No project skills to update.` rather than an error. To refresh those, re-run `npx skills add <path> --all -p`.
+Keep both project-scoped (`-p`), never global; `-y` skips the scope prompt on both.
+
+### Prune this repo's stale skills
+
+`add --all` adds and overwrites, but it never *removes*. A skill renamed or dropped upstream leaves its old copy
+installed forever — verified: after renaming a skill in the source repo, a re-run of `add --all` left both the old and
+the new directory in `.agents/skills/`. `update` spots it (`… appear to have been deleted upstream`) but under `-y`
+declines to act. So prune explicitly, the same way Step 4 does for mattpocock/skills.
+
+Ask GitHub what this repo currently ships, then drop any locally-installed skill sourced from it that's no longer
+there:
+
+```bash
+OUR_SKILLS=$(curl -fsSL https://api.github.com/repos/lpeterke/laravel-skills/contents/skills \
+  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+      console.log(JSON.parse(s).filter(e=>e.type==="dir").map(e=>e.name).join(" "))})')
+
+# Hard stop: an empty list means the fetch failed, not that the repo has no skills.
+if [ -z "$OUR_SKILLS" ]; then
+  echo "Could not list lpeterke/laravel-skills — skipping prune."
+  exit 0
+fi
+
+STALE=$(node -e '
+  const fs = require("fs");
+  const current = new Set(process.argv[1].split(" ").filter(Boolean));
+  if (!fs.existsSync("skills-lock.json")) process.exit(0);
+  const lock = JSON.parse(fs.readFileSync("skills-lock.json", "utf8"));
+  const stale = Object.entries(lock.skills || {})
+    .filter(([name, entry]) => entry.source === "lpeterke/laravel-skills" && !current.has(name))
+    .map(([name]) => name);
+  console.log(stale.join(" "));
+' "$OUR_SKILLS")
+
+[ -n "$STALE" ] && echo "$STALE" | xargs npx skills remove -p -y
+```
+
+Guard rails, all of which matter:
+
+- **Never run the prune on an empty `OUR_SKILLS`** — hence the guard above, which is not optional. A rate-limited,
+  offline or renamed-repo `curl` yields an empty list, and every skill from this repo then matches "not in the current
+  set". Verified: with the list empty, the filter marks the *live* skill as stale and would uninstall it. Skipping a
+  prune is harmless; a wrong prune uninstalls `laravel-init` itself mid-run.
+- **Match on `source`, not on a name you recognise.** Only entries whose lock `source` is exactly
+  `lpeterke/laravel-skills` are candidates. Never remove a skill because its name looks like one of ours.
+- **`xargs`, not `npx skills remove $STALE`** — same zsh/bash word-splitting trap as Step 4.
+
+This generalises what used to be a hardcoded cleanup for one rename: this skill was originally called `init`, and
+projects installed before the rename still carry that stale copy. The prune above catches it automatically, along with
+every future rename or removal, so there's nothing to add here next time and no README migration step.
+
+Three things to know, and to tell the user when relevant:
+
+- **This skill updates itself here, one run late.** The `laravel-init` instructions being followed right now are the copy already installed in the project. If `lpeterke/laravel-skills` changed upstream, the `add --all` above pulls the new version, but *this* run still finishes on the old one. Say so in the summary whenever the refetch actually moved something, and suggest re-running `laravel-init` in a fresh session.
+- **A `deleted upstream` warning is informational.** `update` prints it for anything missing from its source but won't act on it under `-y`. For this repo's skills the prune above has already handled it; for anything else, report the warning rather than removing files on a guess.
+- **Locally-installed skills are skipped by `update`, and by the prune.** The prune matches `source` exactly against `lpeterke/laravel-skills`, so a copy installed from a local path (`source` is a filesystem path, `sourceType` `local`) is left alone — which is right, that's a deliberate dev install. `npx skills update` only refetches skills whose `skills-lock.json` entry has `"sourceType": "github"`. Anything installed from a local path (`npx skills add /path/to/repo`) is silently ignored — it prints `No project skills to update.` rather than an error. To refresh those, re-run `npx skills add <path> --all -p`.
 
 ## Step 6 — Verify the Boost MCP server actually responds
 
@@ -229,10 +288,27 @@ End with a short, concrete list of what actually happened, e.g.:
 ✅ Boost: v1.8.13 → v2.6.0 (major upgrade available) → composer.json updated, re-ran boost:install
 ✅ .gitignore: added .agents/skills/, agent/skills/, .claude/skills/
 ✅ mattpocock/skills: 19 curated skills installed/refreshed; pruned 2 stale (triage, ask-matt) from an earlier --all install
-✅ npx skills update: 20 project skills refreshed (incl. laravel-init itself — re-run in a new session to use the updated version)
+✅ lpeterke/laravel-skills: 2 skills refreshed (laravel-init updated — re-run in a new session to use the new version; laravel-lint-setup newly installed); pruned 1 stale (init, renamed)
+✅ npx skills update: 20 project skills refreshed
 ✅ Boost MCP: responds over stdio, connected in Claude Code
 ✅ mattpocock/skills setup: configured (local markdown tracker, single-context domain docs)
 ```
+
+**Don't run `laravel-lint-setup` from here.** Step 5 installs and refreshes it; whether and when to run it is the
+user's call, because it changes project code — it rewrites `composer.json`, and its first run reformats every
+`.blade.php` file in the project. That's a different kind of change from anything this skill does, and it doesn't
+belong bundled into "set up my AI tooling".
+
+Mention it once in the summary, as a suggestion and nothing more — most usefully when the project has no `pint.json`
+or no `phpstan.neon`:
+
+```
+ℹ️  laravel-lint-setup is installed and no pint.json/phpstan.neon was found.
+    Run it when you want Pint + Larastan set up: "run laravel-lint-setup"
+```
+
+A `test -f pint.json && test -f phpstan.neon` check is enough to decide whether that line is worth printing. If both
+exist, stay quiet.
 
 Don't just say "done" — call out anything that needs the user's attention, like a Boost interactive prompt that needs an answer, or a skill repo that failed to resolve.
 

@@ -11,7 +11,12 @@ It sits alongside two other pieces that are deliberately *not* duplicated here:
 - **Laravel Boost** (`laravel/boost`) — official, per-project, tied to whatever packages that specific project has installed (Livewire, Filament, Pest, etc.). Installed/updated via Composer + `php artisan boost:install`/`boost:update`, not via this repo.
 - **mattpocock/skills** — third-party general engineering skills (grilling for requirements, domain modeling, code review, TDD). Installed via `npx skills add mattpocock/skills`, not duplicated here.
 
-This repo is for everything that's specific to *Lars* rather than to a project or to general engineering practice: his own Laravel/Statamic conventions, his own workflows, and — for now — the `laravel-init` skill that glues Boost + mattpocock/skills together so setting up a project is one instruction instead of three separate systems to remember.
+This repo is for everything that's specific to *Lars* rather than to a project or to general engineering practice: his own Laravel/Statamic conventions and his own workflows. Two skills so far, and they're deliberately independent of each other:
+
+- **`laravel-init`** — glues Boost + mattpocock/skills together so setting up a project's *AI tooling* is one instruction instead of three separate systems to remember. It installs and refreshes `laravel-lint-setup` along with everything else, but never runs it.
+- **`laravel-lint-setup`** — Pint + Blade formatting + Larastan, to `laravel/livewire-starter-kit` parity. Standalone and user-invoked.
+
+**Keep them separate.** AI tooling and linting don't intersect: `laravel-lint-setup` depends on nothing `laravel-init` does (its only precondition is a `composer.json` requiring `laravel/framework`), and `laravel-init` doesn't invoke it. That's a deliberate boundary, not an oversight — `laravel-lint-setup` rewrites `composer.json` and reformats every Blade file in the project, which is a categorically different blast radius from installing agent skills, and it's the user's call when to accept it. Don't "helpfully" chain them.
 
 Skills here are distributed via the [skills CLI](https://github.com/vercel-labs/skills) (`npx skills`), which discovers any `SKILL.md` file anywhere in this repo automatically (confirmed by reading the CLI's own source — it isn't scoped to `skills/`) — it does not read this file or the README to decide what exists. Keep that in mind: the README is for humans, this file is for agents editing the repo, and neither one gates what `npx skills add lpeterke/laravel-skills --all` actually installs.
 
@@ -38,6 +43,8 @@ laravel-skills/
 ├── internal/               — repo-dev-only routines; never discoverable by the skills CLI (no SKILL.md filename, not under skills/)
 │   └── refresh-skills-catalog.md
 └── skills/
+    ├── laravel-init/       — AI-tooling entry point; installs Boost, mattpocock's set, and this repo's own skills
+    ├── laravel-lint-setup/ — Pint + Blade formatting + Larastan, to livewire-starter-kit parity. Standalone; user-invoked
     └── <skill-name>/
         └── SKILL.md        — required: YAML frontmatter (name, description) + instructions
             (optional: scripts/, references/, assets/ subfolders per skill)
@@ -76,13 +83,62 @@ The details, worth knowing precisely because several of these behaviours are sil
 - **`add` copies, it doesn't symlink the source.** The copy lands in the project's `.agents/skills/<name>/`; the per-agent directories (`.claude/skills/` etc.) are symlinks into that. So editing this repo never live-updates an installed project.
 - **`laravel-init` updates itself one run late.** The agent follows the copy already installed in the project. Its own update step pulls the new version, but the run in progress finishes on the old instructions. Any change to it therefore takes effect on the next invocation, in a fresh session.
 - **`update` never adds a skill that isn't already in the lock.** It iterates `skills-lock.json` and refreshes those entries only. Verified: a project whose lock listed 2 of a repo's 37 skills still had exactly 2 after `npx skills update -p -y`. New skills added to this repo therefore reach a project only via `npx skills add`, never via `update`.
-- **A renamed skill is a delete plus an add, and `update` does neither.** The old name is flagged (`The following skills … appear to have been deleted upstream`) but kept, because `-y` means non-interactive and deletion is skipped; the new name is simply absent from the lock, so it's never fetched. Getting a rename into an existing project takes one `npx skills add lpeterke/laravel-skills --all -p`. `laravel-init` then removes the stale `init` itself on its next run, so nothing is left for Lars to do by hand — which is why the README documents no migration procedure. Prefer this pattern over a README step whenever a repo change would otherwise strand a project.
+- **`add` overwrites an already-installed skill in place.** It is not a no-op on a skill that's already there — the installed `SKILL.md` is replaced with the current upstream copy. Verified by editing a source skill and re-running `add --all`: the change landed. This is why `laravel-init` Step 5's `npx skills add lpeterke/laravel-skills --all -p -y` is the update mechanism for this repo's own skills, and why they need no separate `update` handling.
+- **A renamed skill is a delete plus an add, and neither `add` nor `update` does the delete.** `update` flags the old name (`The following skills … appear to have been deleted upstream`) but keeps it, because `-y` means non-interactive and deletion is skipped; `add --all` fetches the new name and leaves the old directory sitting there. Verified: after renaming a skill upstream, a re-run of `add --all` left *both* directories installed. `laravel-init` Step 5 therefore ends with an explicit prune — it lists the repo's current skills over the GitHub contents API and removes any `skills-lock.json` entry sourced from `lpeterke/laravel-skills` that's no longer among them. That generalises what used to be a hardcoded cleanup for the `init` → `laravel-init` rename, so a future rename needs no new code and no README migration step. Prefer this pattern over a README step whenever a repo change would otherwise strand a project.
+  - The prune's one real hazard: if the API call fails, the "current skills" list is empty and *everything* from this repo matches as stale. Confirmed by testing — the filter marked the live skill for removal. The step guards with a hard `exit 0` on an empty list; don't remove that guard.
 
 ## Updating the `laravel-init` skill specifically
 
 `laravel-init` is the orchestration point between this repo, Boost, and mattpocock/skills. If Boost's install/update commands change (Boost evolves independently of this repo), or if the mattpocock/skills repo restructures its own skill names, update `skills/laravel-init/SKILL.md` to match. Don't let it silently drift out of date with either upstream project.
 
 Don't rely on remembering to check this by hand — `internal/refresh-skills-catalog.md` (see below) automates exactly this drift check.
+
+One structural note: `laravel-init` Step 5 is what keeps this repo's own skills current in every project, and it takes
+three parts — `npx skills add lpeterke/laravel-skills --all -p -y`, then `npx skills update -p -y`, then the stale-skill
+prune. Each covers a gap the others don't:
+
+| Change here | Reaches a project via |
+| --- | --- |
+| Edit to an existing skill | `add --all` (it overwrites in place) |
+| Brand-new skill | `add --all` only — `update` can't see it, it's not in the lock |
+| Renamed or deleted skill | the prune only — `add` leaves the old copy, `update` won't delete under `-y` |
+
+Keep all three when editing Step 5. Dropping the `add` strands projects on the skill set they were first installed
+with; dropping the prune leaves dead skills installed forever.
+
+## Upstream sources
+
+Everything in this repo that mirrors someone else's decisions has an upstream to re-derive it from. When Lars asks to
+"bring a skill up to date", these are the places to look — go to the source, not to memory, and not to a docs page when
+the source is code.
+
+**`laravel-lint-setup`** — three upstreams, checked in this order:
+
+| Source | What to read | What in the skill depends on it |
+| --- | --- | --- |
+| [laravel/livewire-starter-kit](https://github.com/laravel/livewire-starter-kit) | `pint.json`, `phpstan.neon`, `composer.json`'s `scripts`, `.editorconfig` | Steps 2, 4, 5, 7 — this is the parity target, everything else is secondary |
+| [Pint docs](https://laravel.com/framework/docs/pint) | The *Custom Rules* section, esp. `Pint/laravel_blade`; the CLI options | Step 2's opt-in, Step 6's troubleshooting |
+| [laravel/pint](https://github.com/laravel/pint) source | `app/Fixers/LaravelBlade/Fixer.php::prettierDependencies()`, `app/Actions/EnsurePrettierIsConfigured.php`, `app/Enums/NodePackageManager.php` | Step 3's exact npm constraints and package-manager detection |
+| [larastan/larastan](https://github.com/larastan/larastan) | README install + config section | Step 1's package name, Step 4's `includes:` path and level |
+
+Three things learned from the source that no docs page states, and that the skill depends on:
+
+- **The Blade rule's Prettier prompt is fatal to an agent.** When `prettier`/`prettier-plugin-blade`/
+  `prettier-plugin-tailwindcss` are missing, Pint calls `confirm(default: false)`; non-interactively that resolves to
+  *no* and Pint `abort(1)`s. The skill installs the packages itself rather than letting Pint offer to. Read
+  `EnsurePrettierIsConfigured::installMissing()` if this ever seems to have changed.
+- **The exact npm constraints live in PHP, not in `package.json` or the docs** — `Fixer::prettierDependencies()`.
+  They were `prettier ^3.8.4`, `prettier-plugin-blade ^3.2.2`, `prettier-plugin-tailwindcss ^0.8.0` when the skill was
+  written. Pint's abort message quotes the current ones precisely, so a mismatch is self-diagnosing at runtime.
+- **The starter kit does *not* enable Blade formatting.** Its `pint.json` is bare `{"preset": "laravel"}`. The
+  `Pint/laravel_blade` opt-in is Lars's addition on top of parity — don't "fix" it back to match the starter kit on a
+  future drift check.
+- **Pint emits JSON, not a table, when an agent runs it** (via `laravel/agent-detector`). One
+  `{"tool":"pint","result":…,"files":[…]}` object per line. Verified live, and documented in the skill's Step 6 so a
+  future agent doesn't read the missing summary line as a failure.
+
+The drift check for all of this is automated in `internal/refresh-skills-catalog.md` Step 1. Prefer running that over
+checking these by hand.
 
 ## Keeping this repo's own docs in sync
 
