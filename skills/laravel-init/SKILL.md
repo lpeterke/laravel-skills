@@ -141,26 +141,38 @@ This is what makes a curation-list change here self-healing in every existing pr
 
 Keep both commands project-scoped (`-p`), not global — each project gets its own copy so one project's skill versions never silently affect another.
 
-## Step 5 — livewire-security: install where Livewire is present, prune where it isn't
+## Step 5 — olgunozoktas/livewire-alpine-skills: install what fits, prune what doesn't
 
-One skill, from a third source. [`olgunozoktas/livewire-alpine-skills`](https://github.com/olgunozoktas/livewire-alpine-skills) ships three; only `livewire-security` is taken. The other two are deliberately skipped — `livewire-development` collides by name with Boost's own skill at `.claude/skills/livewire-development` and would silently overwrite it (see CLAUDE.md's *Upstream sources*), and `alpinejs-development` isn't carrying its weight until an Alpine question comes up that Boost can't answer.
+A third source. [`olgunozoktas/livewire-alpine-skills`](https://github.com/olgunozoktas/livewire-alpine-skills) now ships five skills — `livewire-reference`, `livewire-security`, `livewire-performance`, `alpinejs-reference`, `alpinejs-security` — take all five, gated by relevance rather than cherry-picked. Two things changed since this repo first integrated it, both worth knowing before touching this step again:
 
-Gate it on Livewire being present **anywhere in the dependency tree, not just a direct `composer.json` requirement**. Check `composer.lock`, not `composer.json`:
+- **The name collision with Boost is gone.** The repo's own `livewire-development` and `alpinejs-development` were renamed to `livewire-reference` and `alpinejs-reference` in its 1.0.0, specifically because `livewire-development` collided with Boost's skill of the same name (see CLAUDE.md's *Upstream sources* for the mechanism that made that collision destructive, not cosmetic). With the rename there is no longer a name Boost also uses, so all five install cleanly alongside whatever Boost brings in.
+- **It's a five-skill family now, not one.** `livewire-performance` and `alpinejs-security` are new; the original `alpinejs-development` split into `alpinejs-reference` (the directive/magic/plugin reference) and `alpinejs-security` (the XSS-injection half — Alpine's own docs cover this in six lines across 56 pages, so this is genuinely additive, not duplicated coverage). All five were spot-checked against `livewire/livewire@4.x`, `alpinejs/alpine`, and `laravel/octane` source during integration — the security claims (checksum rate-limiter keyed on IP alone, `ModelSynth` querying through the write connection, Octane's `PrepareLivewireForNextOperation` flushing Livewire by default, Alpine's `new AsyncFunction` compiling raw attribute text) all confirmed accurate, and every skill's self-test suite passes (53+24+13+30+26 = 146 checks).
+
+Two independent gates, because `alpinejs-reference` and `alpinejs-security` are useful without Livewire at all — both skills document themselves as usable with Rails, Django, Hotwire or plain HTML, not just Livewire's bundled Alpine:
 
 ```bash
-if grep -q '"name": "livewire/livewire"' composer.lock 2>/dev/null || [ -d vendor/livewire/livewire ]; then
-  LW_SKILLS=(livewire-security)
-  npx skills add olgunozoktas/livewire-alpine-skills --skill "${LW_SKILLS[@]}" --agent '*' -p -y
+uses_livewire() {
+  grep -Eq '"name":\s*"livewire/livewire"' composer.lock 2>/dev/null || [ -d vendor/livewire/livewire ]
+}
+
+uses_alpine_standalone() {
+  grep -q '"alpinejs"' package.json 2>/dev/null
+}
+
+if uses_livewire; then
+  LW_SKILLS=(livewire-reference livewire-security livewire-performance alpinejs-reference alpinejs-security)
+elif uses_alpine_standalone; then
+  LW_SKILLS=(alpinejs-reference alpinejs-security)
 else
   LW_SKILLS=()
 fi
+
+[ ${#LW_SKILLS[@]} -gt 0 ] && npx skills add olgunozoktas/livewire-alpine-skills --skill "${LW_SKILLS[@]}" --agent '*' -p -y
 ```
 
-**Deliberately not the same check as Boost's own Livewire skill.** Boost's `DiscoverPackagePaths::$mustBeDirect` withholds `livewire-development` unless `livewire/livewire` is a *direct* requirement — its own comment explains why: "This fixes every Boost user getting the MCP guidelines due to indirect import," i.e. it's avoiding dumping Livewire-authoring syntax on a team that never hand-writes a component because Filament (or another Livewire-based package) pulled it in for them. That reasoning doesn't transfer to security guidance: every Filament resource, action, and widget *is* a Livewire component under the hood, so the leak surface — a `public` property serializing to the browser, the morph/hydrate cycle, `#[Locked]` — is exactly as live whether the project typed `composer require livewire/livewire` itself or got it transitively. Gating security relevance on who typed the package name doesn't hold up, so this check reads `composer.lock` (every installed package, direct or not) instead of `composer.json`'s `require`. Verified against a real project: keikaku has `filament/filament` as its only direct Livewire-adjacent requirement, with `livewire/livewire` arriving transitively — `composer.json` doesn't mention it, `composer.lock` does. The old `composer.json`-only gate missed exactly this case and reported "skipped, no livewire/livewire dependency" on a project that ships six Filament packages built on Livewire.
+`uses_livewire` checks `composer.lock`, not `composer.json`'s `require` — deliberately, and unlike Boost's own `DiscoverPackagePaths::$mustBeDirect`, which withholds `livewire-development` unless `livewire/livewire` is a *direct* requirement. Boost's reasoning is sound for its own purpose (avoiding Livewire-authoring syntax on a team that never hand-writes a component because Filament pulled it in for them) but doesn't transfer to security or performance guidance: every Filament resource, action, and widget *is* a Livewire component under the hood, so the leak surface and the request cost are exactly as real whether the project typed `composer require livewire/livewire` itself or got it transitively. Verified against a real project: a Filament app with `livewire/livewire` only in `composer.lock`, never in `composer.json`'s `require`, is exactly the case a direct-only check misses.
 
-`vendor/livewire/livewire` is a fallback for the case `composer.lock` isn't readable for some reason; the primary check is the lock file since it doesn't depend on `composer install` having already run.
-
-Then prune anything else installed from that source, exactly as Step 4 does for mattpocock/skills:
+Then prune anything installed from that source that isn't in the current `LW_SKILLS`, exactly as Step 4 does for mattpocock/skills — this is what makes a project self-heal in both directions (Livewire added later picks up all five on the next run; Livewire removed drops back to the two Alpine skills or nothing):
 
 ```bash
 STALE=$(node -e '
@@ -328,7 +340,7 @@ End with a short, concrete list of what actually happened, e.g.:
 ✅ Boost: v1.8.13 → v2.6.0 (major upgrade available) → composer.json updated, re-ran boost:install
 ✅ .gitignore: added .agents/skills/, agent/skills/, .claude/skills/
 ✅ mattpocock/skills: 19 curated skills installed/refreshed; pruned 2 stale (triage, ask-matt) from an earlier --all install
-✅ livewire-security: installed (livewire/livewire present)
+✅ olgunozoktas/livewire-alpine-skills: 5 skills installed (livewire/livewire present)
 ✅ lpeterke/laravel-skills: 2 skills refreshed (laravel-init updated — re-run in a new session to use the new version; laravel-lint-setup newly installed); pruned 1 stale (init, renamed)
 ✅ npx skills update: 20 project skills refreshed
 ✅ Boost MCP: responds over stdio, connected in Claude Code

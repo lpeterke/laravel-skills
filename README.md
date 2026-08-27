@@ -68,11 +68,15 @@ What `laravel-init` brings into a project, from four sources.
 | wizard | Generates a bash wizard for steps only a human can perform |
 | writing-for-agents | Writing skills/AGENTS.md/CLAUDE.md documents for agents |
 
-**olgunozoktas/livewire-alpine-skills** ([olgunozoktas/livewire-alpine-skills](https://github.com/olgunozoktas/livewire-alpine-skills), 1 of the repo's 3 skills):
+**olgunozoktas/livewire-alpine-skills** ([olgunozoktas/livewire-alpine-skills](https://github.com/olgunozoktas/livewire-alpine-skills), all 5 of the repo's skills, installed where relevant):
 
 | Skill | What it does |
 | --- | --- |
+| livewire-reference | Deep reference for Livewire v4 — components, wire directives, attributes, forms, islands, Alpine integration, Volt, testing |
 | livewire-security | What a Livewire component publishes and what a browser can change: snapshots, `#[Locked]`, leak detection |
+| livewire-performance | What a Livewire request actually costs and how to measure it: snapshot size, queries, render time, persistent workers |
+| alpinejs-reference | Reference for Alpine.js v3 — directives, magic properties, stores, official plugins, Livewire integration |
+| alpinejs-security | Why HTML-escaping a value doesn't protect an Alpine attribute — the two injection seams and what's user-controlled client-side |
 
 ## Update a project
 
