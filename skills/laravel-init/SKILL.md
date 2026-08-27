@@ -9,6 +9,8 @@ One skill that gets a Laravel project's AI tooling into a known-good state — w
 
 Everything below is idempotent: detect current state, do only what's needed, report what changed. Never assume — check first.
 
+**One exception to "check first": the `npx skills add`/`update` commands in Steps 4, 5 and 6 have no cheap separate check — running the command *is* the check.** Don't read `skills-lock.json`, conclude "these are already listed," and treat that as equivalent to having run the command. A listed skill can still be a version behind; the only way to know is to run `add`/`update` and read what it reports. These commands are safe to run every time (that's what idempotent means here) — never skip one because the project looks already up to date. The same goes for Step 2's `boost:install` and `composer require`/`update` calls: run them, don't infer their outcome from `composer.json` alone.
+
 ## Step 1 — Confirm this is a Laravel project
 
 Check for `composer.json` in the project root and that it requires `laravel/framework`. If either is missing, stop and tell the user this doesn't look like a Laravel project rather than proceeding.
@@ -195,7 +197,7 @@ No extra update handling is needed — the lock records `"sourceType": "github"`
 
 ## Step 6 — Refresh every project-scoped skill
 
-Always run this, on every pass, regardless of what Steps 4 and 5 did:
+Always run this, on every pass, regardless of what Steps 4 and 5 did — **and regardless of what earlier steps in this same pass found.** If Steps 1-5 turned up nothing to change, that tells you nothing about whether a skill fetched from GitHub has a newer version; it isn't a reason to summarize this step from memory instead of actually invoking it. Run both commands for real and report their real output, every time:
 
 ```bash
 npx skills add lpeterke/laravel-skills --all -p -y

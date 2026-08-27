@@ -2,15 +2,17 @@
 
 Lars's personal collection of agent skills for Laravel projects, installed via the [skills CLI](https://github.com/vercel-labs/skills).
 
-## Install
+## Install or update
 
 ```bash
-npx skills add lpeterke/laravel-skills --all -p
+npx skills add lpeterke/laravel-skills --all -p -y
 ```
+
+Same command either way — `add` installs what's missing and refreshes what's already there.
 
 ## Use
 
-Ask your agent: **"laravel init this project"**.
+In a fresh agent session, ask it to run `laravel-init` — that pulls in everything else (Boost, mattpocock's curated set, the Livewire/Alpine skills, the MCP check). "Fresh" matters if you just ran the command above: an agent follows whichever copy was already loaded when its session started, not one just fetched.
 
 ## Available skills
 
@@ -77,11 +79,3 @@ What `laravel-init` brings into a project, from four sources.
 | livewire-performance | What a Livewire request actually costs and how to measure it: snapshot size, queries, render time, persistent workers |
 | alpinejs-reference | Reference for Alpine.js v3 — directives, magic properties, stores, official plugins, Livewire integration |
 | alpinejs-security | Why HTML-escaping a value doesn't protect an Alpine attribute — the two injection seams and what's user-controlled client-side |
-
-## Update a project
-
-```bash
-npx skills update laravel-init -p -y
-```
-
-Then, in a fresh agent session, ask it to run `laravel-init` — that pulls in everything else (skills, Boost, the MCP check).
