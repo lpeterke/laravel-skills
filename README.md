@@ -81,9 +81,10 @@ What `laravel-init` brings into a project, from five sources.
 | alpinejs-reference | Reference for Alpine.js v3 — directives, magic properties, stores, official plugins, Livewire integration |
 | alpinejs-security | Why HTML-escaping a value doesn't protect an Alpine attribute — the two injection seams and what's user-controlled client-side |
 
-**EveryInc/compound-engineering-plugin** ([EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin), 2 of the repo's 33 skills — the rest duplicate the planning/implementing/reviewing skills already installed above):
+**EveryInc/compound-engineering-plugin** ([EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin), 3 of the repo's 33 skills — the rest duplicate the planning/implementing/reviewing skills already installed above):
 
 | Skill | What it does |
 | --- | --- |
 | ce-compound | Writes one solved problem up as a durable repo learning under `docs/solutions/`, grounded against the tree |
 | ce-compound-refresh | Audits those learnings for drift, overlap and supersession against the current codebase |
+| ce-doc-review | Reviews a plan or spec through role-specific lenses and returns findings |

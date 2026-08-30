@@ -195,26 +195,29 @@ Array form and `xargs` for the same zsh word-splitting reasons Step 4 documents.
 
 No extra update handling is needed — the lock records `"sourceType": "github"`, so Step 7's `npx skills update -p -y` refreshes it like everything else. Verified, along with the fact that `bin/` survives the copy and `php bin/scan.php --self-test` passes (22/22) from the installed location.
 
-## Step 6 — EveryInc/compound-engineering-plugin: the two learning-capture skills
+## Step 6 — EveryInc/compound-engineering-plugin: three skills, not thirty-three
 
-A fourth source, and a deliberately narrow slice of it. [`EveryInc/compound-engineering-plugin`](https://github.com/EveryInc/compound-engineering-plugin) ships 33 skills; take exactly two:
+A fourth source, and a deliberately narrow slice of it. [`EveryInc/compound-engineering-plugin`](https://github.com/EveryInc/compound-engineering-plugin) ships 33 skills; take exactly three:
 
 ```bash
-CE_SKILLS=(ce-compound ce-compound-refresh)
+CE_SKILLS=(ce-compound ce-compound-refresh ce-doc-review)
 
 npx skills add EveryInc/compound-engineering-plugin --skill "${CE_SKILLS[@]}" --agent '*' -p -y
 ```
 
-**Why only two.** The repo is a full brainstorm → plan → build → review → capture pipeline, and the first four stages of it collide head-on with what this project already installs. `ce-plan` and `ce-brainstorm` are competing planners against mattpocock's `grilling`/`to-spec`; `ce-work` is a competing implementer that also owns branch placement, worker dispatch, commits, a mandatory `ce-code-review` gate and a PR tail — it would take over `laravel-task` rather than serve it; `ce-debug` overlaps `diagnosing-bugs`, `ce-code-review` overlaps `code-review`, `ce-simplify-code` overlaps Claude Code's own `/simplify`, `ce-handoff` overlaps `handoff`, and `ce-commit`/`ce-commit-push-pr`/`ce-babysit-pr` are shipping workflow this repo doesn't own. Installing them wouldn't be additive, it would give the agent two answers to the same question.
+**Why only three.** The repo is a full brainstorm → plan → build → review → capture pipeline, and most of it collides head-on with what this project already installs. `ce-plan` and `ce-brainstorm` are competing planners against mattpocock's `grilling`/`to-spec`; `ce-work` is a competing implementer that also owns branch placement, worker dispatch, commits, a mandatory `ce-code-review` gate and a PR tail — it would take over `laravel-task` rather than serve it; `ce-debug` overlaps `diagnosing-bugs`, `ce-code-review` overlaps `code-review`, `ce-simplify-code` overlaps Claude Code's own `/simplify`, `ce-handoff` overlaps `handoff`, and `ce-commit`/`ce-commit-push-pr`/`ce-babysit-pr` are shipping workflow this repo doesn't own. Installing them wouldn't be additive, it would give the agent two answers to the same question.
 
-`ce-compound` and `ce-compound-refresh` are the exception because **nothing else in this stack does what they do**: writing a solved problem up as a durable, grounded repo learning under `docs/solutions/` that the next session can read, and auditing those learnings against the current tree when they drift. Boost has no equivalent, mattpocock has no equivalent, and it's the one part of "compound engineering" that genuinely compounds. `laravel-task` Step 5 is what invokes `ce-compound`.
+**The three exceptions are the ones nothing else in this stack covers:**
+
+- `ce-compound` and `ce-compound-refresh` — writing a solved problem up as a durable, grounded repo learning under `docs/solutions/` that the next session can read, and auditing those learnings against the current tree when they drift. Boost has no equivalent, mattpocock has no equivalent, and it's the one part of "compound engineering" that genuinely compounds. `laravel-task` Step 5 invokes `ce-compound`.
+- `ce-doc-review` — reviewing a written plan or spec through role-specific lenses (adversarial, coherence, feasibility, scope-guardian, security) and returning findings. This one is the exception to the "duplicates the planners" rule above and was wrongly excluded at first pass: mattpocock has **no** plan-review skill. `grilling` is the closest thing and it is a fundamentally different tool — it interrogates *the user* in rounds, so using it to review a document spends the user's attention on findings a reviewer produces for free. `laravel-task` Step 1c runs `ce-doc-review` first and reserves `grilling` for whatever it surfaces that is genuinely the user's decision.
 
 Verified before adopting, not assumed:
 
 - **The skills CLI installs them cleanly from a Claude Code plugin repo.** `npx skills add EveryInc/compound-engineering-plugin --skill ce-compound ce-compound-refresh` works — the CLI's `SKILL.md` discovery doesn't care that the repo is packaged as a plugin. `references/`, `scripts/` and `assets/` all survive the copy (`ce-compound` ships 13 reference files, 7 subagent prompts and 3 scripts; every `references/*.md` path named in its `SKILL.md` resolves from the installed location).
-- **Neither one needs the plugin runtime.** Only `ce-optimize`, `ce-setup`, `ce-sweep` and `ce-test-browser` reference `CLAUDE_PLUGIN_ROOT` — none of them is in this set. Checked by grepping every `SKILL.md` in the repo.
-- **Neither one hard-depends on an uninstalled sibling.** `ce-compound` mentions `ce-simplify-code` only to say *not* to invoke it, and `ce-oracle`/`ce-issues` only as optional manual follow-ups. Its one real sibling reference is `ce-compound-refresh`, which is why both are installed rather than just the first.
-- **`mode:non-interactive` is a real contract, not a courtesy.** Both skills parse the token and then ask no blocking question in any phase, ending on a parseable `Documentation complete` / `Documentation skipped`. That's what makes `ce-compound` safe to call from inside another skill's run.
+- **None needs the plugin runtime.** Only `ce-optimize`, `ce-setup`, `ce-sweep` and `ce-test-browser` reference `CLAUDE_PLUGIN_ROOT` — none is in this set. Checked by grepping every `SKILL.md` in the repo.
+- **None hard-depends on an uninstalled sibling.** `ce-compound` mentions `ce-simplify-code` only to say *not* to invoke it, and `ce-oracle`/`ce-issues` only as optional manual follow-ups; its one real sibling reference is `ce-compound-refresh`, which is why that one is installed too. `ce-doc-review` names `ce-plan` and `ce-work` only in its **terminal handoff menu** ("proceed to the next stage") — findings and personas are entirely self-contained. `laravel-task` Step 1c is told explicitly to take the findings and ignore that menu, since Step 2 is its next stage.
+- **`mode:non-interactive` is a real contract, not a courtesy.** These skills parse the token and then ask no blocking question in any phase, ending on a parseable terminal signal. That's what makes them safe to call from inside another skill's run — it's why `ce-doc-review` can run unattended in `laravel-task` Step 1c before any question reaches the user.
 
 Note that `ce-compound` writes to `docs/solutions/` (configurable via `.compound-engineering/config.yaml`'s `docs_root`) and may create or edit a root `CONCEPTS.md`. That's project content, not tooling — it only happens when something is actually invoked, never during this install step.
 
@@ -385,7 +388,7 @@ End with a short, concrete list of what actually happened, e.g.:
 ✅ .gitignore: added .agents/skills/, agent/skills/, .claude/skills/
 ✅ mattpocock/skills: 19 curated skills installed/refreshed; pruned 2 stale (triage, ask-matt) from an earlier --all install
 ✅ olgunozoktas/livewire-alpine-skills: 5 skills installed (livewire/livewire present)
-✅ EveryInc/compound-engineering-plugin: 2 skills installed (ce-compound, ce-compound-refresh)
+✅ EveryInc/compound-engineering-plugin: 3 skills installed (ce-compound, ce-compound-refresh, ce-doc-review)
 ✅ lpeterke/laravel-skills: 3 skills refreshed (laravel-init updated — re-run in a new session to use the new version; laravel-lint-setup and laravel-task newly installed); pruned 1 stale (init, renamed)
 ✅ npx skills update: 20 project skills refreshed
 ✅ Boost MCP: responds over stdio, connected in Claude Code

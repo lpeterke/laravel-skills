@@ -31,27 +31,47 @@ php artisan boost:list-skills 2>/dev/null
 
 `npx skills` writes `.agents/skills/<name>` and symlinks it into `.claude/skills/`; Boost writes directly into `.claude/skills/<name>`. Reading only one of the two sources misses half the set. `boost:list-skills` is the authoritative list of Boost's side — it reflects the packages this project actually has, which is the whole point (a project without Inertia has no `inertia-*` skill and never will).
 
-If `.agents/skills` is empty or absent, or `boost:list-skills` errors out, say plainly that `laravel-init` looks like it hasn't run and offer to run it — then stop. Working the task with none of the delegated skills present is a materially different (worse) job, not a degraded-but-fine one.
+If either source comes back empty, `laravel-init` hasn't run (or hasn't run since this project got its packages). Scale the response to the work rather than always stopping:
+
+- **Real feature, refactor or non-trivial bugfix** → say so and offer to run `laravel-init` first, then stop. Doing this work without `laravel-best-practices` and the stack skills is a materially worse job, not a slightly degraded one.
+- **A typo, a copy change, a one-line fix** → say it once, then carry on. Blocking a two-minute change behind a tooling install is the wrong trade.
+
+Then read two things that decide where the plan goes:
+
+```bash
+cat docs/agents/issue-tracker.md 2>/dev/null
+ls .agents/skills/to-spec 2>/dev/null
+```
+
+`laravel-init` Step 9 configures mattpocock's issue tracker — local markdown under `.scratch/` for these projects — and records the layout in `docs/agents/issue-tracker.md`. **That file is the authority on where a spec or plan lives; this skill has no path of its own and must not invent one.** If it's absent, the tracker was never configured: keep the plan in chat, or ask where to put it. Never guess a directory.
 
 Then detect the stack, which decides Step 2's routing:
 
 ```bash
-uses()      { grep -Eq "\"name\":\s*\"$1\"" composer.lock 2>/dev/null; }
+uses()      { grep -Eq "\"name\":\\s*\"$1\"" composer.lock 2>/dev/null; }
 uses_npm()  { grep -q "\"$1\"" package.json 2>/dev/null; }
 
-uses livewire/livewire        && echo livewire
-uses livewire/flux            && echo flux
-uses filament/filament        && echo filament
+uses livewire/livewire         && echo livewire
+uses livewire/volt             && echo volt
+uses livewire/flux             && echo flux
+uses livewire/flux-pro         && echo flux
+uses filament/filament         && echo filament
+uses laravel/folio             && echo folio
+uses laravel/wayfinder         && echo wayfinder
+uses laravel/pennant           && echo pennant
+uses laravel/mcp               && echo mcp
 uses inertiajs/inertia-laravel && echo inertia
-uses_npm '@inertiajs/vue3'    && echo inertia-vue
-uses_npm '@inertiajs/react'   && echo inertia-react
-uses_npm '@inertiajs/svelte'  && echo inertia-svelte
-uses_npm alpinejs             && echo alpine
-uses_npm tailwindcss          && echo tailwind
-uses pestphp/pest             && echo pest
-uses statamic/cms             && echo statamic
-grep -q '"test"' composer.json 2>/dev/null && echo composer-test
+uses_npm '@inertiajs/vue3'     && echo inertia-vue
+uses_npm '@inertiajs/react'    && echo inertia-react
+uses_npm '@inertiajs/svelte'   && echo inertia-svelte
+uses_npm alpinejs              && echo alpine
+uses_npm tailwindcss           && echo tailwind
+uses pestphp/pest              && echo pest
+uses statamic/cms              && echo statamic
+composer run-script --list 2>/dev/null | grep -qE '^[[:space:]]+test[[:space:]]' && echo composer-test
 ```
+
+Those Composer package names are the ones Boost itself keys on — `PackageRegistry::guidelineName()` maps `laravel/folio` → `folio` → `.ai/folio/skill/folio-routing`, and so on. Taking the names from Boost's own registry rather than guessing is what keeps this list and Step 2's table in agreement.
 
 Check `composer.lock`, not `composer.json`'s `require` — a Filament project has Livewire transitively and every Filament resource *is* a Livewire component, so the Livewire skills are exactly as relevant there. This is the same reasoning `laravel-init` Step 5 documents for its own gate; keep the two consistent.
 
@@ -69,13 +89,26 @@ Skip 1a only when the task is genuinely unambiguous *and* small — a typo, a on
 
 **1b. Write the plan.** Only after 1a settles. Keep it in chat for small work; write a file for anything multi-step. A useful plan names the files it will touch, the seam it will be tested at, and what "done" means — not just a list of verbs.
 
+**Where it goes is Step 0's answer, not this skill's.** If `docs/agents/issue-tracker.md` exists, follow it — `laravel-init` configures local markdown under `.scratch/`, and `to-spec` (in the curated mattpocock set) is the skill that turns the settled conversation into a spec and files it there. Prefer `to-spec` over hand-writing a plan file whenever the tracker is configured: it keeps every plan in one discoverable place instead of scattering them wherever an individual run felt like. With no tracker configured, keep the plan in chat rather than inventing a directory.
+
 If the task is a *bug* rather than a feature, use `diagnosing-bugs` here instead of planning from a blank page: reproduce first, find the actual cause, and only then plan the fix. A plan written before the bug is understood is a guess.
 
 If the work is big or structural enough that the domain vocabulary is in question, `domain-modeling` and `codebase-design` are the right reaches. Don't pull them in by default.
 
-**1c. Grill the plan.** Invoke `grilling` again, this time against the written plan. Different job from 1a: 1a asks "what are we building"; 1c asks "will this plan survive contact with the codebase" — wrong seam, missed migration, a case the plan quietly doesn't handle, a decision made in a phase whose prerequisite is still open.
+**1c. Review the plan, then grill what the review surfaces.** Different job from 1a: 1a asks "what are we building"; 1c asks "will this plan survive contact with the codebase" — wrong seam, missed migration, a case the plan quietly doesn't handle.
 
-Revise the plan on what comes back. Then get the user's go-ahead before Step 2. **Steps 1 and 2 are separated on purpose — do not start editing files while the plan is still being grilled.**
+Two tools, in this order, because they do different things and only one of them needs the user:
+
+1. **`ce-doc-review` on the written plan, `mode:non-interactive`.** This is a *document* review — it dispatches role-specific lenses (adversarial, coherence, feasibility, scope-guardian, security) at the plan and returns findings. It needs no answers from the user, so run it first and let it find the holes.
+2. **`grilling` on whatever the review turned up that is genuinely the user's call.** A missed requirement, a scope question, a trade-off the review flagged but can't decide. Facts the review surfaced, you fix yourself; decisions go to the user.
+
+That split matters because `grilling` interrogates *the user* — its whole method is rounds of questions. Running it blind against a plan spends the user's attention on things a document reviewer would have caught for free. Findings first, then questions, and often there are no questions left.
+
+If `ce-doc-review` isn't installed, fall back to `grilling` alone on the plan — that's the original shape of this step and it still works, it just costs more of the user's time.
+
+> `ce-doc-review` ends by offering to route onward to `ce-plan` or `ce-work`. **Ignore that handoff.** Neither is installed and neither should be: `laravel-task` Step 2 is this run's next stage. Take the findings, drop the menu.
+
+Revise the plan on what comes back. Then get the user's go-ahead before Step 2. **Steps 1 and 2 are separated on purpose — do not start editing files while the plan is still under review.**
 
 ## Step 2 — Implement, routed by stack
 
@@ -92,6 +125,13 @@ Then add whichever of these the Step 0 stack detection turned up. These are *and
 | `inertia-react` | `inertia-react-development` (Boost) |
 | `inertia-svelte` | `inertia-svelte-development` (Boost) |
 | `tailwind` | `tailwindcss-development` (Boost) |
+| `volt` | `volt-development` (Boost) — single-file Livewire components |
+| `folio` | `folio-routing` (Boost) — file-based routes, filename route params |
+| `wayfinder` | `wayfinder-development` (Boost) — generated typed route/controller functions in frontend code |
+| `pennant` | `pennant-development` (Boost) — only when the task touches feature flags |
+| `mcp` | `mcp-development` (Boost) — only when the task builds MCP tools/resources/prompts |
+
+Two more Boost skills are unconditional rather than stack-gated: `testing-best-practices` (Step 3 uses it) and `infer-conventions`, which reads how this app is actually written and records its conventions. Reach for `infer-conventions` when the project's conventions aren't obvious from the files you're touching — not on every task.
 
 Boost's Livewire, Inertia and Tailwind skills ship in *version-specific* variants (Livewire v2/v3/v4, Inertia v1/v2, Tailwind v3/v4) and Boost installs the one matching the project. That's another reason to read the installed skill rather than answer from memory — the variant on disk is the one that's true here.
 
@@ -103,12 +143,19 @@ Pick from what Step 0's inventory actually listed. A stack signal with no matchi
 
 - Follow the plan from Step 1. A decision the plan settled is settled — if implementation reveals it was wrong, stop and say so rather than quietly re-deciding.
 - Match the surrounding code. Read a neighbouring controller/component/migration before writing a new one; the project's conventions beat any general guidance, including this skill's.
-- Prefer `implement` (mattpocock) for multi-file work driven from a written spec. It's `disable-model-invocation: true`, so it's a deliberate reach, not an automatic one — but its loop (TDD at pre-agreed seams, typecheck often, full suite once) is the right shape for exactly this step.
+- **Decide the test-first question here, once, and say which way you went.** `implement` (mattpocock) and `tdd` drive the test *before* the code; Step 3 below writes it after. Both are valid, they are not both valid on the same task, and an agent that follows both writes the test twice. Pick at the top of this step:
+  - **Test-first** — the seam is already settled by the plan and the behaviour is easy to state before it exists (a new endpoint, a job, a bugfix with a known reproduction). Use `implement`/`tdd` and drive the red→green loop here. **Step 3 then becomes a review, not a write**: check what you produced against Step 3's three rules and extend it if it falls short.
+  - **Test-after** — the shape of the code is still genuinely in question, which is common for UI and Livewire work where the seam only becomes clear once the component exists. Implement here, write the test in Step 3.
+  - When it's a coin flip, go test-first. It produces the better seam more often, and it makes Step 3 cheap.
+
+  `implement` is `disable-model-invocation: true`, so reaching for it is deliberate rather than automatic — but its loop (TDD at pre-agreed seams, typecheck often, full suite once) is exactly this step's shape for multi-file work driven from a written spec.
 - If the project is Statamic, remember that content lives in flat files under `content/` and views in Antlers or Blade — don't reach for Eloquent by reflex.
 
-## Step 3 — Write a Pest test
+## Step 3 — Write (or finish) a Pest test
 
-**Write a test. This is the default and it does not need to be asked about.** There are exactly two ways out:
+**If Step 2 went test-first, the test already exists.** This step is then a review against the three rules below, not a second write — extend what's there if it falls short, and say "written test-first in Step 2" in the summary. Everything else in this step applies either way.
+
+**Otherwise: write a test. This is the default and it does not need to be asked about.** There are exactly two ways out:
 
 1. **The user said not to** when invoking this skill — "no test", "skip the tests", "just the fix". Explicit only; not inferred from brevity or urgency.
 2. **A test genuinely adds nothing** — a copy change, a comment, a config value with no behaviour attached, a pure rename. Say which of the two applied in the summary; never let the step vanish silently.
@@ -145,7 +192,20 @@ composer test
 Two failure modes to keep separate, because they call for opposite responses:
 
 - **Your change broke it** → fix it, re-run, repeat until green. Non-negotiable.
-- **It was already broken** → confirm with `git stash && composer test; git stash pop`, then report it as pre-existing and leave it alone. Fixing unrelated failures inside a task is scope creep, and it makes the diff unreviewable. Say plainly that it was already failing and offer to look at it separately.
+- **It was already broken** → confirm against a clean tree, then report it as pre-existing and leave it alone. Fixing unrelated failures inside a task is scope creep and it makes the diff unreviewable. Say plainly that it was already failing and offer to look at it separately.
+
+  ```bash
+  git stash push -u -m laravel-task-baseline   # -u is required, see below
+  composer test
+  git stash pop
+  ```
+
+  **`-u` is not optional and this check is worthless without it.** Plain `git stash` does not stash untracked files — verified directly. The Pest test you just wrote in Step 3 is untracked, so it stays in the working tree across the stash and runs as part of the "clean baseline". A failing new test then looks like a pre-existing failure and gets waved through, which is precisely backwards.
+
+  Two more guards on this, because it touches the user's working tree:
+
+  - **Check what you're about to stash first** (`git status --porcelain`). If the tree holds the user's unrelated work-in-progress alongside yours, say so and ask before stashing rather than sweeping it up silently.
+  - **`git stash pop` can conflict.** If it does, stop and tell the user the stash still holds their work and how to recover it (`git stash list`, `git checkout --theirs`…). Never leave a failed pop unmentioned — that's how work goes missing.
 
 If there's no `test` script, run the narrowest thing that exists (`./vendor/bin/pest <path>`, or `php artisan test --filter=…`) and note in the summary that `laravel-lint-setup` would give the project a real `composer test`.
 
@@ -162,12 +222,13 @@ Its own preconditions are the gate, and they're deliberately strict: **solved, v
 Short, concrete, and honest about what didn't happen:
 
 ```
-✅ Plan: grilled (2 rounds), written to .scratch/plans/invoice-export.md, re-grilled — seam moved from the
-   controller to the InvoiceExporter action
+✅ Plan: grilled (2 rounds), filed via to-spec to .scratch/specs/invoice-export.md (per
+   docs/agents/issue-tracker.md), reviewed with ce-doc-review — seam moved from the controller to the
+   InvoiceExporter action; no follow-up questions needed
 ✅ Implemented: 4 files — app/Actions/ExportInvoices.php (new), InvoiceController, routes/web.php,
    resources/views/invoices/index.blade.php. Skills: laravel-best-practices, livewire-development,
    livewire-security, tailwindcss-development
-✅ Test: extended tests/Feature/InvoiceExportTest.php with 3 cases (auth'd export, 403 for another
+✅ Test: written test-first in Step 2, extended tests/Feature/InvoiceExportTest.php with 3 cases (auth'd export, 403 for another
    tenant's invoice, empty-range response). No new file — the fixtures were already there.
 ✅ composer test: green (refactor:check, lint:check, types:check, artisan test — 148 passed)
 ℹ️  Learning captured: docs/solutions/security/livewire-locked-tenant-id.md
