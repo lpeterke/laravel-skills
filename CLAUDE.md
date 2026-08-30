@@ -6,18 +6,20 @@ This file is for an agent (or Lars) working *on* this repository itself — i.e.
 
 This repo is Lars's personal, portable layer of AI-agent skills for Laravel/Statamic freelance work. It exists to solve one problem: getting consistent, high-quality AI coding assistance set up in a new or existing Laravel project should take one command, not a checklist of manual steps re-derived from memory each time.
 
-It sits alongside three other pieces that are deliberately *not* duplicated here:
+It sits alongside four other pieces that are deliberately *not* duplicated here:
 
 - **Laravel Boost** (`laravel/boost`) — official, per-project, tied to whatever packages that specific project has installed (Livewire, Filament, Pest, etc.). Installed/updated via Composer + `php artisan boost:install`/`boost:update`, not via this repo.
 - **mattpocock/skills** — third-party general engineering skills (grilling for requirements, domain modeling, code review, TDD). Installed via `npx skills add mattpocock/skills`, not duplicated here.
+- **EveryInc/compound-engineering-plugin** — exactly two of its 33 skills, `ce-compound` and `ce-compound-refresh`. Installed via `npx skills add`, not duplicated here. See *Upstream sources* for why the other 31 are excluded.
 - **olgunozoktas/livewire-alpine-skills** — all five of its skills (`livewire-reference`, `livewire-security`, `livewire-performance`, `alpinejs-reference`, `alpinejs-security`), gated by whether the project has Livewire, Alpine, or neither. Installed via `npx skills add`, not duplicated here. See *Upstream sources* for the gate logic and why this repo previously took only one of its three skills.
 
-This repo is for everything that's specific to *Lars* rather than to a project or to general engineering practice: his own Laravel/Statamic conventions and his own workflows. Two skills so far, and they're deliberately independent of each other:
+This repo is for everything that's specific to *Lars* rather than to a project or to general engineering practice: his own Laravel/Statamic conventions and his own workflows. Three skills so far:
 
 - **`laravel-init`** — glues Boost + mattpocock/skills together so setting up a project's *AI tooling* is one instruction instead of three separate systems to remember. It installs and refreshes `laravel-lint-setup` along with everything else, but never runs it.
 - **`laravel-lint-setup`** — Pint + Blade formatting + Larastan + Rector, to `laravel/livewire-starter-kit` parity (Blade formatting and Rector are additions on top), plus Pest as this repo's strongly preferred testing framework — installed if missing, existing PHPUnit tests migrated to Pest syntax, kept current including major versions. Standalone and user-invoked.
+- **`laravel-task`** — the one that actually does work. Grill the requirements, write a plan, grill the plan, implement it routed by the project's real stack, cover it with a Pest test, run `composer test`, capture the learning. It owns the *sequence* and delegates the *substance*: almost nothing in it is Laravel knowledge, it's knowledge about which installed skill to reach for and when. It depends on `laravel-init` having run (Step 0 checks and stops if not) but never runs it, and it never runs `laravel-lint-setup` either.
 
-**Keep them separate.** AI tooling and linting don't intersect: `laravel-lint-setup` depends on nothing `laravel-init` does (its only precondition is a `composer.json` requiring `laravel/framework`), and `laravel-init` doesn't invoke it. That's a deliberate boundary, not an oversight — `laravel-lint-setup` rewrites `composer.json`, reformats every Blade file, lets Rector rewrite application logic, and migrates existing tests from PHPUnit to Pest, which is a categorically different blast radius from installing agent skills, and it's the user's call when to accept it. Don't "helpfully" chain them.
+**Keep `laravel-init` and `laravel-lint-setup` separate.** AI tooling and linting don't intersect: `laravel-lint-setup` depends on nothing `laravel-init` does (its only precondition is a `composer.json` requiring `laravel/framework`), and `laravel-init` doesn't invoke it. `laravel-task` is the one skill that *reads* the others' output — it needs `laravel-init` to have run and it prefers `laravel-lint-setup` to have run — but it invokes neither, for the same reason: it reports what's missing and names the skill, and the user decides. That's a deliberate boundary, not an oversight — `laravel-lint-setup` rewrites `composer.json`, reformats every Blade file, lets Rector rewrite application logic, and migrates existing tests from PHPUnit to Pest, which is a categorically different blast radius from installing agent skills, and it's the user's call when to accept it. Don't "helpfully" chain them.
 
 Skills here are distributed via the [skills CLI](https://github.com/vercel-labs/skills) (`npx skills`), which discovers any `SKILL.md` file anywhere in this repo automatically (confirmed by reading the CLI's own source — it isn't scoped to `skills/`) — it does not read this file or the README to decide what exists. Keep that in mind: the README is for humans, this file is for agents editing the repo, and neither one gates what `npx skills add lpeterke/laravel-skills --all` actually installs.
 
@@ -46,6 +48,7 @@ laravel-skills/
 └── skills/
     ├── laravel-init/       — AI-tooling entry point; installs Boost, mattpocock's set, and this repo's own skills
     ├── laravel-lint-setup/ — Pint + Blade formatting + Larastan + Rector + Pest (strongly preferred). Standalone; user-invoked
+    ├── laravel-task/        — the work loop: grill → plan → grill → implement → Pest test → composer test → capture
     └── <skill-name>/
         └── SKILL.md        — required: YAML frontmatter (name, description) + instructions
             (optional: scripts/, references/, assets/ subfolders per skill)
@@ -88,13 +91,19 @@ The details, worth knowing precisely because several of these behaviours are sil
 - **A renamed skill is a delete plus an add, and neither `add` nor `update` does the delete.** `update` flags the old name (`The following skills … appear to have been deleted upstream`) but keeps it, because `-y` means non-interactive and deletion is skipped; `add --all` fetches the new name and leaves the old directory sitting there. Verified: after renaming a skill upstream, a re-run of `add --all` left *both* directories installed. `laravel-init` Step 6 therefore ends with an explicit prune — it lists the repo's current skills over the GitHub contents API and removes any `skills-lock.json` entry sourced from `lpeterke/laravel-skills` that's no longer among them. That generalises what used to be a hardcoded cleanup for the `init` → `laravel-init` rename, so a future rename needs no new code and no README migration step. Prefer this pattern over a README step whenever a repo change would otherwise strand a project.
   - The prune's one real hazard: if the API call fails, the "current skills" list is empty and *everything* from this repo matches as stale. Confirmed by testing — the filter marked the live skill for removal. The step guards with a hard `exit 0` on an empty list; don't remove that guard.
 
+**Step numbering.** `laravel-init` is now ten steps: 1 Laravel check, 2 Boost, 3 gitignore, 4 mattpocock, 5
+olgunozoktas, 6 EveryInc, 7 refresh+prune, 8 MCP check, 9 mattpocock setup, 10 summary. Inserting a step means
+renumbering every later heading *and* every in-body cross-reference ("as Step 4 does…", "Step 7's `npx skills
+update`") — those cross-references are load-bearing and have gone stale once already. Grep for `Step [0-9]` after any
+insertion.
+
 ## Updating the `laravel-init` skill specifically
 
 `laravel-init` is the orchestration point between this repo, Boost, and mattpocock/skills. If Boost's install/update commands change (Boost evolves independently of this repo), or if the mattpocock/skills repo restructures its own skill names, update `skills/laravel-init/SKILL.md` to match. Don't let it silently drift out of date with either upstream project.
 
 Don't rely on remembering to check this by hand — `internal/refresh-skills-catalog.md` (see below) automates exactly this drift check.
 
-One structural note: `laravel-init` Step 6 is what keeps this repo's own skills current in every project, and it takes
+One structural note: `laravel-init` Step 7 is what keeps this repo's own skills current in every project, and it takes
 three parts — `npx skills add lpeterke/laravel-skills --all -p -y`, then `npx skills update -p -y`, then the stale-skill
 prune. Each covers a gap the others don't:
 
@@ -104,7 +113,7 @@ prune. Each covers a gap the others don't:
 | Brand-new skill | `add --all` only — `update` can't see it, it's not in the lock |
 | Renamed or deleted skill | the prune only — `add` leaves the old copy, `update` won't delete under `-y` |
 
-Keep all three when editing Step 6. Dropping the `add` strands projects on the skill set they were first installed
+Keep all three when editing Step 7. Dropping the `add` strands projects on the skill set they were first installed
 with; dropping the prune leaves dead skills installed forever.
 
 ## Upstream sources
@@ -178,6 +187,69 @@ reasoning kept for the record; a false-positive Alpine URL rule that misfired 14
 in 1.3.1) which is a *good* sign about how the maintainer works, not a red flag — but it means this repo's own content
 is still moving fast. Re-run the self-tests and `verify-facts`/`verify-facts.php` after any version bump rather than
 assuming last quarter's audit still holds.
+
+**`laravel-init` Step 6 — [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin).**
+A 33-skill Claude Code plugin implementing a brainstorm → plan → build → review → capture loop. Exactly two of the 33
+are taken: `ce-compound` and `ce-compound-refresh`.
+
+**Why two and not more, and why this isn't likely to change.** The first four stages of that loop are already covered
+by skills this repo installs, and installing both sets would give the agent two answers to every question. Concretely:
+`ce-plan`/`ce-brainstorm` compete with mattpocock's `grilling`/`to-spec`; `ce-work` is not just an implementer but a
+full orchestrator that claims branch placement, worker dispatch, canonical commits, a mandatory `ce-code-review`
+completion gate and a PR tail — it would *replace* `laravel-task` rather than serve it, which is the specific reason
+it was rejected; `ce-debug` overlaps `diagnosing-bugs`; `ce-code-review` overlaps `code-review` and Claude Code's own
+`/code-review`; `ce-simplify-code` overlaps `/simplify`; `ce-handoff` overlaps `handoff`. The rest
+(`ce-commit-push-pr`, `ce-babysit-pr`, `ce-dogfood`, `ce-promote`, `ce-product-pulse`, `ce-sweep`, `ce-test-xcode`,
+`ce-retune`, `ce-proof`…) is shipping/product workflow, iOS, or plugin-maintenance tooling with no place in a
+freelance Laravel engagement. Don't reopen this on a drift check unless one of the *excluded* skills has changed
+character — a version bump alone isn't a reason.
+
+The pair that *was* taken is the one genuinely additive part: writing a solved problem up as a durable, grounded repo
+learning under `docs/solutions/` that the next session reads, and auditing those learnings for drift. Boost has no
+equivalent; mattpocock has none either (`handoff` compacts a conversation, which is a different artifact with a
+different lifetime). `laravel-task` Step 5 is the caller.
+
+Verified empirically before adopting, all four load-bearing:
+
+- **`npx skills add` works against a Claude Code plugin repo.** The CLI matches `SKILL.md` by filename anywhere in the
+  tree and doesn't care about `plugin.json`. Both skills installed with `references/`, `scripts/` and `assets/`
+  intact — `ce-compound` ships 13 reference files, 7 subagent prompt files and 3 scripts, and every `references/*.md`
+  path its `SKILL.md` names resolves from the installed location (checked exhaustively, zero misses).
+- **Neither needs the plugin runtime.** `CLAUDE_PLUGIN_ROOT` appears in exactly four skills — `ce-optimize`,
+  `ce-setup`, `ce-sweep`, `ce-test-browser` — and none is in the set. Several skills that *do* look self-contained
+  aren't; grep before adding any more.
+- **Neither hard-depends on an uninstalled sibling.** `ce-compound` names `ce-simplify-code` only to forbid invoking
+  it, and `ce-oracle`/`ce-issues` only as optional manual follow-ups. Its one real sibling dependency is
+  `ce-compound-refresh` — which is why the set is two, not one.
+- **`mode:non-interactive` is a genuine contract.** Both parse the token and then ask no blocking question in any
+  phase, terminating on a parseable `Documentation complete` / `Documentation skipped <reason>`. That's what makes
+  `ce-compound` callable from inside `laravel-task`'s run without deadlocking it.
+
+Note the write surface: `ce-compound` writes under `docs/solutions/` (relocatable via
+`.compound-engineering/config.yaml`'s `docs_root`) and may create or edit a root `CONCEPTS.md`. Installing it touches
+nothing; only invoking it does.
+
+**`laravel-task`** — it has no single upstream to re-derive from, because it's pure orchestration over skills that do.
+Its drift risk is entirely in the *names* it routes to. Four things it depends on, each verified from source rather
+than docs:
+
+- **Boost's skill set is per-project, not fixed.** Boost's own repo ships only four skill directories
+  (`laravel-best-practices`, `pennant-development`, and `tailwindcss-development` in v3 and v4 variants); everything
+  else — `livewire-development`, `inertia-{vue,react,svelte}-development`, `fluxui-development`,
+  `volt-development` — comes from each *package's* own `resources/boost/skill/` directory, discovered at install time
+  by `DiscoverPackagePaths`. So the skill list is a function of `composer.lock`, and `laravel-task` Step 0 reads it
+  live via `php artisan boost:list-skills` (signature confirmed in `src/Console/ListSkillCommand.php`) rather than
+  hardcoding names.
+- **The two skill directories don't overlap.** `npx skills` writes `.agents/skills/<name>` and symlinks into
+  `.claude/skills/`; Boost writes straight into `.claude/skills/<name>` via `SkillWriter`. Reading only
+  `.agents/skills/` misses every Boost skill. Step 0 reads both sources.
+- **`grill-me` is not callable by the model.** Its entire body is "Call the Skill tool with `grilling`", and it
+  carries `disable-model-invocation: true` — it's the user's trigger phrase, not an entry point. `laravel-task`
+  invokes `grilling` directly, twice (once on the requirements, once on the written plan). Same for `implement`,
+  which is also `disable-model-invocation: true` and therefore a deliberate reach, not an automatic one.
+- **`composer test` is `laravel-lint-setup`'s script, not Laravel's.** A stock project has no such script; a
+  `laravel-lint-setup` project runs `config:clear` → `refactor:check` → `lint:check` → `types:check` → `artisan test`.
+  Step 4 checks for it and degrades to the narrowest available test command rather than assuming.
 
 **`laravel-lint-setup`** — checked in this order:
 

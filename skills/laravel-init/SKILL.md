@@ -1,6 +1,6 @@
 ---
 name: laravel-init
-description: Bootstrap or refresh the AI tooling for a Laravel project in one pass — installs Laravel Boost if it's missing or updates it if it's already there, and installs or updates this repo's own skills and mattpocock/skills locally in the project. Sets up AI tooling only — it does not touch linting or application code. Use this whenever starting a new Laravel project, opening an existing Laravel project where Boost or mattpocock/skills look missing or outdated, or when the user says things like "laravel init", "init this project", "set up AI tooling", "bootstrap boost", or "update my skills". Always run this instead of manually piecing together composer/boost/npx-skills commands one at a time.
+description: Bootstrap or refresh the AI tooling for a Laravel project in one pass — installs Laravel Boost if it's missing or updates it if it's already there, and installs or updates this repo's own skills plus curated sets from mattpocock/skills, olgunozoktas/livewire-alpine-skills and EveryInc/compound-engineering-plugin locally in the project. Sets up AI tooling only — it does not touch linting or application code. Use this whenever starting a new Laravel project, opening an existing Laravel project where Boost or mattpocock/skills look missing or outdated, or when the user says things like "laravel init", "init this project", "set up AI tooling", "bootstrap boost", or "update my skills". Always run this instead of manually piecing together composer/boost/npx-skills commands one at a time.
 ---
 
 # Laravel Init
@@ -9,7 +9,7 @@ One skill that gets a Laravel project's AI tooling into a known-good state — w
 
 Everything below is idempotent: detect current state, do only what's needed, report what changed. Never assume — check first.
 
-**One exception to "check first": the `npx skills add`/`update` commands in Steps 4, 5 and 6 have no cheap separate check — running the command *is* the check.** Don't read `skills-lock.json`, conclude "these are already listed," and treat that as equivalent to having run the command. A listed skill can still be a version behind; the only way to know is to run `add`/`update` and read what it reports. These commands are safe to run every time (that's what idempotent means here) — never skip one because the project looks already up to date. The same goes for Step 2's `boost:install` and `composer require`/`update` calls: run them, don't infer their outcome from `composer.json` alone.
+**One exception to "check first": the `npx skills add`/`update` commands in Steps 4, 5, 6 and 7 have no cheap separate check — running the command *is* the check.** Don't read `skills-lock.json`, conclude "these are already listed," and treat that as equivalent to having run the command. A listed skill can still be a version behind; the only way to know is to run `add`/`update` and read what it reports. These commands are safe to run every time (that's what idempotent means here) — never skip one because the project looks already up to date. The same goes for Step 2's `boost:install` and `composer require`/`update` calls: run them, don't infer their outcome from `composer.json` alone.
 
 ## Step 1 — Confirm this is a Laravel project
 
@@ -193,11 +193,53 @@ STALE=$(node -e '
 
 Array form and `xargs` for the same zsh word-splitting reasons Step 4 documents. `LW_SKILLS=()` in the `else` branch is what makes the gate self-healing in both directions: a project that removes Livewire gets the skill pruned on the next run, without a separate uninstall path.
 
-No extra update handling is needed — the lock records `"sourceType": "github"`, so Step 6's `npx skills update -p -y` refreshes it like everything else. Verified, along with the fact that `bin/` survives the copy and `php bin/scan.php --self-test` passes (22/22) from the installed location.
+No extra update handling is needed — the lock records `"sourceType": "github"`, so Step 7's `npx skills update -p -y` refreshes it like everything else. Verified, along with the fact that `bin/` survives the copy and `php bin/scan.php --self-test` passes (22/22) from the installed location.
 
-## Step 6 — Refresh every project-scoped skill
+## Step 6 — EveryInc/compound-engineering-plugin: the two learning-capture skills
 
-Always run this, on every pass, regardless of what Steps 4 and 5 did — **and regardless of what earlier steps in this same pass found.** If Steps 1-5 turned up nothing to change, that tells you nothing about whether a skill fetched from GitHub has a newer version; it isn't a reason to summarize this step from memory instead of actually invoking it. Run both commands for real and report their real output, every time:
+A fourth source, and a deliberately narrow slice of it. [`EveryInc/compound-engineering-plugin`](https://github.com/EveryInc/compound-engineering-plugin) ships 33 skills; take exactly two:
+
+```bash
+CE_SKILLS=(ce-compound ce-compound-refresh)
+
+npx skills add EveryInc/compound-engineering-plugin --skill "${CE_SKILLS[@]}" --agent '*' -p -y
+```
+
+**Why only two.** The repo is a full brainstorm → plan → build → review → capture pipeline, and the first four stages of it collide head-on with what this project already installs. `ce-plan` and `ce-brainstorm` are competing planners against mattpocock's `grilling`/`to-spec`; `ce-work` is a competing implementer that also owns branch placement, worker dispatch, commits, a mandatory `ce-code-review` gate and a PR tail — it would take over `laravel-task` rather than serve it; `ce-debug` overlaps `diagnosing-bugs`, `ce-code-review` overlaps `code-review`, `ce-simplify-code` overlaps Claude Code's own `/simplify`, `ce-handoff` overlaps `handoff`, and `ce-commit`/`ce-commit-push-pr`/`ce-babysit-pr` are shipping workflow this repo doesn't own. Installing them wouldn't be additive, it would give the agent two answers to the same question.
+
+`ce-compound` and `ce-compound-refresh` are the exception because **nothing else in this stack does what they do**: writing a solved problem up as a durable, grounded repo learning under `docs/solutions/` that the next session can read, and auditing those learnings against the current tree when they drift. Boost has no equivalent, mattpocock has no equivalent, and it's the one part of "compound engineering" that genuinely compounds. `laravel-task` Step 5 is what invokes `ce-compound`.
+
+Verified before adopting, not assumed:
+
+- **The skills CLI installs them cleanly from a Claude Code plugin repo.** `npx skills add EveryInc/compound-engineering-plugin --skill ce-compound ce-compound-refresh` works — the CLI's `SKILL.md` discovery doesn't care that the repo is packaged as a plugin. `references/`, `scripts/` and `assets/` all survive the copy (`ce-compound` ships 13 reference files, 7 subagent prompts and 3 scripts; every `references/*.md` path named in its `SKILL.md` resolves from the installed location).
+- **Neither one needs the plugin runtime.** Only `ce-optimize`, `ce-setup`, `ce-sweep` and `ce-test-browser` reference `CLAUDE_PLUGIN_ROOT` — none of them is in this set. Checked by grepping every `SKILL.md` in the repo.
+- **Neither one hard-depends on an uninstalled sibling.** `ce-compound` mentions `ce-simplify-code` only to say *not* to invoke it, and `ce-oracle`/`ce-issues` only as optional manual follow-ups. Its one real sibling reference is `ce-compound-refresh`, which is why both are installed rather than just the first.
+- **`mode:non-interactive` is a real contract, not a courtesy.** Both skills parse the token and then ask no blocking question in any phase, ending on a parseable `Documentation complete` / `Documentation skipped`. That's what makes `ce-compound` safe to call from inside another skill's run.
+
+Note that `ce-compound` writes to `docs/solutions/` (configurable via `.compound-engineering/config.yaml`'s `docs_root`) and may create or edit a root `CONCEPTS.md`. That's project content, not tooling — it only happens when something is actually invoked, never during this install step.
+
+Then prune, same pattern as Steps 4 and 5, so a change to `CE_SKILLS` here self-heals in every project on the next run:
+
+```bash
+STALE=$(node -e '
+  const fs = require("fs");
+  const curated = new Set(process.argv[1].split(" "));
+  if (!fs.existsSync("skills-lock.json")) process.exit(0);
+  const lock = JSON.parse(fs.readFileSync("skills-lock.json", "utf8"));
+  const stale = Object.entries(lock.skills || {})
+    .filter(([name, entry]) => entry.source === "EveryInc/compound-engineering-plugin" && !curated.has(name))
+    .map(([name]) => name);
+  console.log(stale.join(" "));
+' "${CE_SKILLS[*]}")
+
+[ -n "$STALE" ] && echo "$STALE" | xargs npx skills remove -p -y
+```
+
+Array form and `xargs` for the zsh word-splitting reasons Step 4 documents. No separate update handling — the lock records `"sourceType": "github"`, so Step 7's `npx skills update -p -y` refreshes both.
+
+## Step 7 — Refresh every project-scoped skill
+
+Always run this, on every pass, regardless of what Steps 4, 5 and 6 did — **and regardless of what earlier steps in this same pass found.** If Steps 1-6 turned up nothing to change, that tells you nothing about whether a skill fetched from GitHub has a newer version; it isn't a reason to summarize this step from memory instead of actually invoking it. Run both commands for real and report their real output, every time:
 
 ```bash
 npx skills add lpeterke/laravel-skills --all -p -y
@@ -274,7 +316,7 @@ Three things to know, and to tell the user when relevant:
 - **A `deleted upstream` warning is informational.** `update` prints it for anything missing from its source but won't act on it under `-y`. For this repo's skills the prune above has already handled it; for anything else, report the warning rather than removing files on a guess.
 - **Locally-installed skills are skipped by `update`, and by the prune.** The prune matches `source` exactly against `lpeterke/laravel-skills`, so a copy installed from a local path (`source` is a filesystem path, `sourceType` `local`) is left alone — which is right, that's a deliberate dev install. `npx skills update` only refetches skills whose `skills-lock.json` entry has `"sourceType": "github"`. Anything installed from a local path (`npx skills add /path/to/repo`) is silently ignored — it prints `No project skills to update.` rather than an error. To refresh those, re-run `npx skills add <path> --all -p`.
 
-## Step 7 — Verify the Boost MCP server actually responds
+## Step 8 — Verify the Boost MCP server actually responds
 
 Boost being installed doesn't mean its MCP server works — a PHP error, a broken `.env`, or a failed migration all leave the package in place and the server dead. Speak MCP to it directly:
 
@@ -300,7 +342,7 @@ claude mcp add -s local -t stdio laravel-boost php artisan boost:mcp
 
 For any other agent, say which one is in use and point at Boost's own registration details (`command: php`, `args: artisan boost:mcp`) rather than guessing at its config format.
 
-## Step 8 — Configure mattpocock's skills non-interactively
+## Step 9 — Configure mattpocock's skills non-interactively
 
 `setup-matt-pocock-skills` configures the per-repo state the rest of mattpocock's engineering skills assume exists: issue tracker, triage label vocabulary, domain doc layout. It has `disable-model-invocation: true` and is normally a prompt-driven skill meant to be run by hand via `/setup-matt-pocock-skills`. Run it here instead, with fixed answers, so this whole pass stays non-interactive — these are freelance/solo Laravel projects, and the answers below are always the right ones for that shape of project.
 
@@ -334,7 +376,7 @@ Local markdown, under `.scratch/`. See `docs/agents/issue-tracker.md`.
 Single-context. See `docs/agents/domain.md`.
 ```
 
-## Step 9 — Report a summary
+## Step 10 — Report a summary
 
 End with a short, concrete list of what actually happened, e.g.:
 
@@ -343,13 +385,19 @@ End with a short, concrete list of what actually happened, e.g.:
 ✅ .gitignore: added .agents/skills/, agent/skills/, .claude/skills/
 ✅ mattpocock/skills: 19 curated skills installed/refreshed; pruned 2 stale (triage, ask-matt) from an earlier --all install
 ✅ olgunozoktas/livewire-alpine-skills: 5 skills installed (livewire/livewire present)
-✅ lpeterke/laravel-skills: 2 skills refreshed (laravel-init updated — re-run in a new session to use the new version; laravel-lint-setup newly installed); pruned 1 stale (init, renamed)
+✅ EveryInc/compound-engineering-plugin: 2 skills installed (ce-compound, ce-compound-refresh)
+✅ lpeterke/laravel-skills: 3 skills refreshed (laravel-init updated — re-run in a new session to use the new version; laravel-lint-setup and laravel-task newly installed); pruned 1 stale (init, renamed)
 ✅ npx skills update: 20 project skills refreshed
 ✅ Boost MCP: responds over stdio, connected in Claude Code
 ✅ mattpocock/skills setup: configured (local markdown tracker, single-context domain docs)
 ```
 
-**Don't run `laravel-lint-setup` from here.** Step 6 installs and refreshes it; whether and when to run it is the
+**Don't run `laravel-lint-setup` or `laravel-task` from here.** Step 7 installs and refreshes both; running either is
+a separate, user-initiated decision. `laravel-task` in particular is the skill that *does the work* once this one has
+set the tooling up — mention it in the summary as the natural next step ("ready — hand me a task and I'll run
+`laravel-task`"), but never start a task from inside an init run.
+
+For `laravel-lint-setup` specifically, the reason is blast radius. Step 7 installs and refreshes it; whether and when to run it is the
 user's call, because it changes project code — it rewrites `composer.json`, reformats every `.blade.php` file on its
 first run, and can migrate the project's tests from PHPUnit to Pest. That's a different kind of change from anything
 this skill does, and it doesn't belong bundled into "set up my AI tooling".
