@@ -27,6 +27,7 @@ What `laravel-init` brings into a project, from five sources.
 | laravel-init | One-pass bootstrap of a project's AI tooling: Boost, the curated mattpocock set, the MCP check |
 | laravel-lint-setup | Sets up Pint, Larastan and Rector via Composer scripts. Run `composer test` to execute. |
 | laravel-task | Works one task end to end: grill, plan, grill, implement via the stack's skills, Pest test, `composer test` |
+| laravel-audit | Read-only audit of existing code — verdicts in implementation, performance and security |
 
 **Laravel Boost** ([laravel/boost](https://github.com/laravel/boost) `v2.6.0`, sourced from the package repo directly — its docs website lags actual releases, confirmed by this list once already):
 

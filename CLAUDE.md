@@ -13,11 +13,13 @@ It sits alongside four other pieces that are deliberately *not* duplicated here:
 - **EveryInc/compound-engineering-plugin** — exactly three of its 33 skills: `ce-compound`, `ce-compound-refresh` and `ce-doc-review`. Installed via `npx skills add`, not duplicated here. See *Upstream sources* for why the other 31 are excluded.
 - **olgunozoktas/livewire-alpine-skills** — all five of its skills (`livewire-reference`, `livewire-security`, `livewire-performance`, `alpinejs-reference`, `alpinejs-security`), gated by whether the project has Livewire, Alpine, or neither. Installed via `npx skills add`, not duplicated here. See *Upstream sources* for the gate logic and why this repo previously took only one of its three skills.
 
-This repo is for everything that's specific to *Lars* rather than to a project or to general engineering practice: his own Laravel/Statamic conventions and his own workflows. Three skills so far:
+This repo is for everything that's specific to *Lars* rather than to a project or to general engineering practice: his own Laravel/Statamic conventions and his own workflows. Four skills so far:
 
 - **`laravel-init`** — glues Boost + mattpocock/skills together so setting up a project's *AI tooling* is one instruction instead of three separate systems to remember. It installs and refreshes `laravel-lint-setup` along with everything else, but never runs it.
 - **`laravel-lint-setup`** — Pint + Blade formatting + Larastan + Rector, to `laravel/livewire-starter-kit` parity (Blade formatting and Rector are additions on top), plus Pest as this repo's strongly preferred testing framework — installed if missing, existing PHPUnit tests migrated to Pest syntax, kept current including major versions. Standalone and user-invoked.
 - **`laravel-task`** — the one that actually does work. Grill the requirements, write a plan, grill the plan, implement it routed by the project's real stack, cover it with a Pest test, run `composer test`, capture the learning. It owns the *sequence* and delegates the *substance*: almost nothing in it is Laravel knowledge, it's knowledge about which installed skill to reach for and when. It depends on `laravel-init` having run (Step 0 checks and stops if not) but never runs it, and it never runs `laravel-lint-setup` either.
+
+- **`laravel-audit`** — the read-only counterpart to `laravel-task`. Same orchestration shape, but it produces a judgement rather than a change: runs the olgunozoktas static scanners for hard evidence, judges idiom against `laravel-best-practices` and the project's own `.ai/rules/`, and reports verdicts in three fields (implementation, performance, security). **Its read-only contract is the whole point** — it excludes three skills specifically because they write (`infer-conventions` writes `.ai/rules/`, `ce-compound` writes `docs/solutions/`, `improve-codebase-architecture` grills the user into implementing). If an audit finding needs fixing, that's a fresh `laravel-task` invocation, never a continuation.
 
 **Keep `laravel-init` and `laravel-lint-setup` separate.** AI tooling and linting don't intersect: `laravel-lint-setup` depends on nothing `laravel-init` does (its only precondition is a `composer.json` requiring `laravel/framework`), and `laravel-init` doesn't invoke it. `laravel-task` is the one skill that *reads* the others' output — it needs `laravel-init` to have run and it prefers `laravel-lint-setup` to have run — but it invokes neither, for the same reason: it reports what's missing and names the skill, and the user decides. That's a deliberate boundary, not an oversight — `laravel-lint-setup` rewrites `composer.json`, reformats every Blade file, lets Rector rewrite application logic, and migrates existing tests from PHPUnit to Pest, which is a categorically different blast radius from installing agent skills, and it's the user's call when to accept it. Don't "helpfully" chain them.
 
@@ -49,6 +51,7 @@ laravel-skills/
     ├── laravel-init/       — AI-tooling entry point; installs Boost, mattpocock's set, and this repo's own skills
     ├── laravel-lint-setup/ — Pint + Blade formatting + Larastan + Rector + Pest (strongly preferred). Standalone; user-invoked
     ├── laravel-task/        — the work loop: grill → plan → grill → implement → Pest test → composer test → capture
+    ├── laravel-audit/       — read-only assessment: scanners → skill-routed judgement → 3-field verdict
     └── <skill-name>/
         └── SKILL.md        — required: YAML frontmatter (name, description) + instructions
             (optional: scripts/, references/, assets/ subfolders per skill)
@@ -269,6 +272,46 @@ than docs:
 - **`composer test` is `laravel-lint-setup`'s script, not Laravel's.** A stock project has no such script; a
   `laravel-lint-setup` project runs `config:clear` → `refactor:check` → `lint:check` → `types:check` → `artisan test`.
   Step 4 checks for it and degrades to the narrowest available test command rather than assuming.
+
+**`laravel-audit`** — like `laravel-task` it has no single upstream, but unlike `laravel-task` it depends on the
+olgunozoktas skills' `bin/` **tooling** rather than just their prose, and that tooling has sharp edges. Four things
+established by running the scanners, all of which the skill routes around and none of which is documented upstream:
+
+- **`scan-performance.php` searches only `<root>/app`, `<root>/resources/views` and `<root>/packages`.** Given a
+  feature subdirectory it looks for `app/` *inside it*, finds nothing, prints `0 finding(s)` and exits 0 — which
+  reads as a clean bill of health. Verified in both directions on the same code: 3 findings from the project root, 0
+  from `app/Livewire`. The skill always passes `$ROOT` and filters afterward. **This is the single most dangerous
+  behaviour in the toolchain**, because its failure mode is a false clean rather than an error.
+- **`scan.php` (security) does *not* share that flaw.** It falls back to the given directory when no conventional
+  path exists, with a source comment saying why ("rather than reporting a clean result for a tree nobody looked at").
+  The two sibling scanners genuinely differ; don't assume symmetry between them on a future check.
+- **`review-security.py` has a verified false negative on its own headline rule.** `looks_like_php()` treats `->`
+  anywhere in the matched fragment as a sign the value is PHP rather than an Alpine expression, and it tests the
+  whole region *including* the Blade interpolation. So `x-data="{ name: '{{ $user->name }}' }"` is silently
+  suppressed while `{{ $displayName }}` in the identical position is flagged — i.e. the most common Blade
+  interpolation shape in existence defeats the rule. Confirmed by calling `scan()` on both directly. The suppression
+  is there for a real reason (Blade's `:prop="$var"` vs Alpine's `:attr`, the false-positive class fixed in 1.3.1);
+  it is simply too broad. Its own self-test cannot catch this — all six fixtures use bare `{{ $var }}`.
+  **`laravel-audit` compensates with an explicit grep and says so in its report boundary.** Worth reporting upstream;
+  re-test it after any version bump before removing the workaround.
+- **Exit code is the finding count, not a status.** Non-zero is a normal result. Don't let a future edit treat it as
+  a tool failure.
+
+All four scanners' self-tests pass from the installed `.agents/skills/<skill>/bin/` location (24/24, 13/13, 26/26,
+30/30), and all three were run end-to-end against a scratch project from those installed paths.
+
+Two more constraints the skill is built around:
+
+- **`code-review` (mattpocock) is diff-scoped.** It reviews `git diff <fixed-point>...HEAD` and asks the user for a
+  fixed point, so it does not apply to auditing existing code with no meaningful diff. `laravel-audit` invokes it
+  directly when the scope *is* a branch or PR, and otherwise borrows the transferable part — its 12-smell Fowler
+  baseline, its "repo standard overrides the baseline" rule, and its refusal to merge separate axes into one ranking
+  (which is why the audit reports three fields and never averages them).
+- **`infer-conventions` writes.** Boost's skill records what it learns as durable rules under `.ai/rules/` — its own
+  words, "record what you learn as durable, path-scoped rules". That makes it unusable in a read-only skill, but its
+  *output* is the best available answer to "is this idiomatic for this app", so `laravel-audit` reads `.ai/rules/`
+  and never runs the skill. Same shape of exclusion for `ce-compound` (writes `docs/solutions/`) and
+  `improve-codebase-architecture` (grills the user into implementing one of its findings).
 
 **`laravel-lint-setup`** — checked in this order:
 
